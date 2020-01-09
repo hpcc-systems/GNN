@@ -8,8 +8,8 @@ EXPORT Types := MODULE
   /**
     * Return structure for call to EvaluateMod.
     * <p>Contains a series of metrics and their values.
-    * @field metriId A sequential id to maintain the metrics' order.
-    * @field metriName The Keras name identifying the metric.
+    * @field metricId A sequential id to maintain the metrics' order.
+    * @field metricName The Keras name identifying the metric.
     * @field value The value of the metric.
     */
   EXPORT metrics := RECORD

@@ -24,7 +24,7 @@ nodeId := Thorlib.node();
   *
   * <p>Provides a generalized ECL interface to Keras over Tensorflow.  It currently only supports
   * the Keras Sequential Model.
-  * <p> THEORY OF OPERATION
+  * <p><h1> THEORY OF OPERATION</h1>
   * <p>A Keras / TF model is built on each HPCC node and training data is distributed among the nodes.
   * Distributed Synchronous Batch Gradient Descent is performed across nodes, synchronizing weights
   * periodically based on the 'batchSize' parameter.  Each function performs its work in a
@@ -97,7 +97,7 @@ EXPORT GNNI := MODULE
     * next call to GNNI.
     * <p>This function must be called before any other use of GNNI.
     *
-    * @returns A session token (UNSIGNED4) to identify this session.
+    * @return A session token (UNSIGNED4) to identify this session.
     */
   EXPORT UNSIGNED4 GetSession() := FUNCTION
     initDat := DATASET(1, TRANSFORM(initParms,
