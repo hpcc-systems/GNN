@@ -17,7 +17,7 @@ NumericField := mlTypes.NumericField;
   * <p>Tensor datasets provide an efficient way to store, distribute,
   * and process N-Dimensional data.
   * Tensors represent an N dimensional array.  They can represent data of from
-  * 0 dimensions (scalar) 1 dimension (vector), 2 dimensions (matrix), or
+  * 0 dimensions (scalar), 1 dimension (vector), 2 dimensions (matrix), or
   * up to a high number of dimensions.
   *
   * <p>Tensors are typed -- the module currently only supports REAL4 type
@@ -41,7 +41,7 @@ NumericField := mlTypes.NumericField;
   * <p>Tensor Shape:
   * <p>A Tensor is defined with a shape.  Shapes are given by a set
   *  of integers defining the length of each dimension of the Tensor.
-  * For example: shapme [4, 3, 2] represents a 4 x 3 x 2 tensor.
+  * For example: shape [4, 3, 2] represents a 4 x 3 x 2 tensor.
   * Record-oriented Tensors may have the first shape component
   * unspecified.  Zero is used to indicated that the index is
   * unspecified.  For example: a shape of [0, 5, 8, 4] specifies
@@ -58,7 +58,7 @@ NumericField := mlTypes.NumericField;
   * <p>Tensor Lists:
   * <p>A t_Tensor dataset also allows for multiple tensors of different
   * shapes to be stored in a single dataset.  The work item (wi) field
-  * of the Tensor is used to distinguish between the differnt Tensors.
+  * of the Tensor is used to distinguish between the different Tensors.
   * A Tensor with multiple work items is considered an ordered list of
   * Tensors.
   *
@@ -74,29 +74,46 @@ NumericField := mlTypes.NumericField;
   * for example, a Tensor of shape [2,3,3] to be built by packing
   * two 3 x 3 matrices into a Tensor.
   *
-  * EXAMPLES:
+  * <p>EXAMPLES:
+  * <pre>
   * // Scalar (0-D)
-  * tensDatScalar := t_Tensor.R4.dat.fromScalar(3.14159); // 0D (Scalar) t_Tensor
+  * tensDatScalar := Tensor.R4.dat.fromScalar(3.14159); // 0D (Scalar) Tensor data
   * // Vector (1-D)
-  * tensDatVector := t_Tensor.R4.dat.fromVector([.013, .015, -.312, 0, 1.0]); // 1D (Vector) t_Tensor
+  * tensDatVector := Tensor.R4.dat.fromVector([.013, .015, -.312, 0, 1.0]); // 1D (Vector) Tensor data
   * // Matrix (2-D)
-  * tensDatMatrix := t_Tensor.R4.datfromMatrix(myNF); // 2D (Matrix) t_Tensor
+  * tensDatMatrix := Tensor.R4.dat.fromMatrix(myNF); // 2D (Matrix) Tensor data
   * // N-D Tensor
   * tensDat := DATASET([{[1,1,1,1], .01},
-  *                      {[5,2,111,3], .02}], t_Tensor.t_TensorDat); // 4D (nD) t_Tensor
-  *
+  *                      {[5,2,111,3], .02}], Tensor.R4.TensDat); // 4D (nD) Tensor data
+  * </pre>
   */
 EXPORT Tensor
  := MODULE
-
+  /**
+    * @internal
+    */
   EXPORT t_Indexes := SET OF UNSIGNED4;
+  /**
+    * @internal
+    */
   EXPORT t_TensType := ENUM(UNUSED=0, R4=1, R8=2, I4=3, I8=4); // Data type of cell
-
+  /**
+    * @internal
+    */
   EXPORT t_Scope := ENUM(UNUSED=0, DIST=1, REPL=2);
+  /**
+    * @internal
+    */
   EXPORT t_SliceId := UNSIGNED4;
+  /**
+    * @internal
+    */
   EXPORT t_WorkItem := UNSIGNED4;
 
   // The maximum slice size allowed (in bytes)
+  /**
+    * @internal
+    */
   EXPORT MAX_SLICE := 250000;
   /**
     * Calculate the total (Dense) number of cells in the t_Tensor, given a shape
@@ -116,6 +133,9 @@ EXPORT Tensor
   ENDEMBED;
   // Calculate an optimal slice size for this tensor based on its shape, distribution,
   // and the number of nodes in the cluster.
+  /**
+    * @internal
+    */
   EXPORT UNSIGNED4 calcSliceSize(UNSIGNED8 dataSize, UNSIGNED4 elemSize, t_Indexes shape, BOOLEAN isDistributed, UNSIGNED2 breakAtIndex) := FUNCTION
     UNSIGNED4 calcBreakSize(t_Indexes shape, UNSIGNED4 elemSize, UNSIGNED2 breakAtIndex) := EMBED(Python)
       import numpy as np
@@ -586,11 +606,13 @@ EXPORT Tensor
         assert 0 == 1, 'Tensor.calcSliceId: ' + tb.format_exc()
     ENDEMBED;
     /**
-      * Make a Tensor (i.e. a t_Tensor dataset) from a set of TensorData and
+      * Make a Tensor from a set of TensorData and
       * some meta-data.
-      * <p>Tensors can be replicated (e.g. copied locally to each node), or
+      * <p>Tensors may be replicated (e.g. copied locally to each node), or
       * distributed (slices spread across nodes).
       * @param shape The desired shape of the Tensor (e.g. [10, 5, 2]).
+      * @param contents Dataset of TensData representing the contents of the Tensor.
+      *         If omitted, the tensor will be empty (i.e. all zeros).
       * @param replicated True if this tensor is to be replicated to all nodes.
       *            Default = False (i.e. distributed).
       * @param wi Work-item.  This field allows multiple Tensors to be stored
@@ -600,6 +622,7 @@ EXPORT Tensor
       * @param forceMaxSliceSize If non-zero, it will override the default sizing
       *        of slices.  Needed internally, but should always use the default
       *        (0) for external uses.
+      * @return A dataset of t_Tensor representing the Tensor object.
       */
     EXPORT DATASET(t_Tensor) MakeTensor(t_Indexes shape,
                                 DATASET(TensData) contents = DATASET([], TensData),
@@ -760,7 +783,7 @@ EXPORT Tensor
       * list 2.  The lists must also be of the same length.
       * @param t1 The first tensor or tensor list.
       * @param t2 The second tensor or tensor list.
-      * @return A new Tensor (DATASET(t_Tensor) representing t1 + t2.
+      * @return A new Tensor (DATASET(t_Tensor)) representing t1 + t2.
       */
     EXPORT DATASET(t_Tensor) Add(DATASET(t_Tensor) t1, DATASET(t_Tensor) t2) := FUNCTION
       dense1 := PROJECT(t1, TRANSFORM(RECORDOF(LEFT),
@@ -781,7 +804,7 @@ EXPORT Tensor
       RETURN out;
     END; // Add
     /**
-      * @nodoc
+      * @internal
       * Add 2 tensor slices.  This is for internal use only.
       * @param s1 The first tensor slice.
       * @param s2 The second tensor slice.
@@ -815,7 +838,7 @@ EXPORT Tensor
       RETURN nRecs;
     END; // GetRecordCount
     /**
-      * @nodoc
+      * @internal
       * Internal use only.
       * Aligns a pair of record-oriented tensors such that the same record number
       * of each Tensor will be on the same node.  This prevents different sized
