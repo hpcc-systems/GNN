@@ -585,26 +585,29 @@ EXPORT Tensor
       // Allocate slices sequentially to nodes
       slicesPerNode := nSlices / nNodes;
       relNode := (sliceId - 1) div slicesPerNode;
-      // Offset per wi so that differnt work items use staggered node numbering
-      nodeId := (wi - 1) + relNode % nNodes;
+      nodeId := relNode % nNodes;
       return nodeId;
     END;
     /**
       * Calculate the sliceId in which a given Tensor cell will reside.
       */
-    SHARED UNSIGNED4 calcSliceId(t_Indexes indexes, t_Indexes indxSizes, UNSIGNED4 sliceSize) := EMBED(Python)
-      import traceback as tb
-      try:
-        # Indexes are 1 based
-        # Calculate the position (zero based) given a 1-based index
-        pos = 0
-        for i in range(len(indxSizes)):
-          pos += (indexes[i]-1) * indxSizes[i]
-        # Return the sliceId (1-based)
-        return int(pos / sliceSize) + 1
-      except:
-        assert 0 == 1, 'Tensor.calcSliceId: ' + tb.format_exc()
-    ENDEMBED;
+    SHARED UNSIGNED4 calcSliceId(UNSIGNED recNum, UNSIGNED4 recSize, UNSIGNED4 sliceSize) := FUNCTION
+      pos := (recNum - 1) * recSize;
+      RETURN (pos DIV sliceSize) + 1;
+    END;
+    /**
+      * Optimized version of calcNodeId(wi, calcSliceId(...), nSlices)
+      * Because of the number of times this is called, we need to optimize as much as possible,
+      * even at the cost of clarity.
+      */
+    SHARED UNSIGNED4 calcNodeId2(UNSIGNED4 wi, UNSIGNED4 nSlices, UNSIGNED4 sliceSize, UNSIGNED recNum, UNSIGNED4 recSize) := FUNCTION
+      sliceIdZ :=((recNum -1) * recSize) DIV sliceSize; // Zero based
+      relNode := sliceIdZ DIV (nSlices / nNodes);
+      //nodeId := (wi - 1) + relNode % nNodes;
+      nodeId := relNode % nNodes; // Temporarily disable spreading by wi
+      RETURN nodeId;
+    END;
+
     /**
       * Make a Tensor from a set of TensorData and
       * some meta-data.
@@ -645,7 +648,8 @@ EXPORT Tensor
       sliceElems := sliceSize / elemSize;
       nSlices := ROUNDUP(totalSize / sliceSize);
       indxSizes := calcIndexSizes(shape);
-      contentsD := DISTRIBUTE(contents, calcNodeId(wi, calcSliceId(indexes, indxSizes, sliceElems), nSlices));
+      recSize := indxSizes[1];
+      contentsD := DISTRIBUTE(contents, calcNodeId2(wi, nSlices, sliceElems, indexes[1], recSize));
       contentsDS := SORT(NOCOMBINE(contentsD), indexes[1], LOCAL);
       slices0 := makeSlices(contentsDS, wi, shape, adjShape, t_TensType.R4, elemSize, sliceElems);
       // If not replicated, slices are already correctly distributed (i.e. by wi and sliceId)
@@ -660,10 +664,13 @@ EXPORT Tensor
       */
     SHARED DATASET(t_Tensor) deReplicate(DATASET(t_Tensor) tens) := FUNCTION
       nSlices := COUNT(tens);
+      maxSlice := MAX(tens, sliceId);
       slicesPerNode := nSlices / nNodes;
       wi := tens[1].wi;
       derep := tens(nodeId = calcNodeId(wi, sliceId, nSlices));
-      return derep;
+      // Only de-rep if it is a replicated tensor, otherwise bad things can happen.
+      outTens := IF(nSlices > maxSlice, derep, tens);
+      return outTens;
     END;
     /**
       * Extract the data from a tensor and return it in sparse TensData format.
@@ -803,6 +810,7 @@ EXPORT Tensor
                         SELF := compressIfNeeded(LEFT, LEFT.denseData)), LOCAL);
       RETURN out;
     END; // Add
+
     /**
       * @internal
       * Add 2 tensor slices.  This is for internal use only.
@@ -887,5 +895,59 @@ EXPORT Tensor
                     IF(ArecsPerSlice > BrecsPerSlice, alignedA + tB0, tens));
       RETURN reAligned;
     END; // AlignTensorPair
+    /**
+      * Aligns a list of Tensors (seperated by wi) so that all of the tensors'
+      * corresponding records are stored on the same node.
+      * This prevents different sized
+      * records from being distributed differently among the nodes.
+      * <p>In most cases, the inputs and outputs to a neural network during training,
+      * and the inputs during prediction should be aligned so that
+      * various aspects of the same observation are presented together.
+      *
+      * @param tens A Tensor List with at least two tensors identified by
+      *    sequential work item ids from 1-N.
+      * @return A new Tensor List with the same number of tensors as the input
+      *    list, with all of the tensors being aligned.
+      **/
+    EXPORT DATASET(t_Tensor) AlignTensors(DATASET(t_Tensor) tensList) := FUNCTION
+      // This can be optimized if necessary by custom restructuring
+      //  versus use of GetData(...) and MakeTensor(...)
+      elemSize := 4; // REAL4
+      UNSIGNED recSize(t_Indexes shape) := EMBED(Python)
+        import numpy as np
+        recSz = np.prod(shape[1:])
+        return int(recSz)
+      ENDEMBED;
+      itemInfo0 := TABLE(tensList, {wi, shape, maxSliceSize, UNSIGNED recsPerSlice := 0, UNSIGNED recSize := 0}, wi, shape, maxSliceSize);
+      itemInfo1 := PROJECT(itemInfo0, TRANSFORM(RECORDOF(LEFT),
+                                    SELF.recSize := recSize(LEFT.shape),
+                                    SELF.recsPerSlice := LEFT.maxSliceSize / SELF.recSize,
+                                    SELF := LEFT), LOCAL);
+      itemInfo := SORT(itemInfo1, recsPerSlice, -recSize);
+      largestRecItem := itemInfo[1];
+      newRecSize := largestRecItem.recSize;
+      newRecsPerSlice := largestRecItem.recsPerSlice;
+      largestRecWI := largestRecItem.wi;
+      numTensors := COUNT(itemInfo);
+      DATASET(t_Tensor) adjustTensors(DATASET(t_Tensor) tl, UNSIGNED ctr) := FUNCTION
+        // Do one tensor for each loop
+        thisTens := tl(wi = ctr);
+        thisTensDat := GetData(thisTens);
+        thisTensShape := thisTens[1].shape;
+        thisMaxSliceSize := newRecsPerSlice * recSize(thisTensShape) * elemSize;
+        // We want all the tensors to be aligned the same, so we create the slices with
+        // wi of the largestRecItem, and then project to the correct wi.  This is because MakeTensor spreads
+        // the wi's across nodes.  By Making all the tensors with the wi of the largestRecItem, we
+        // save the need to re-create that largest of the tensors.
+        adjTens0 := MakeTensor(thisTensShape, thisTensDat, wi := largestRecWI, forceMaxSliceSize := thisMaxSliceSize);
+        adjTens := PROJECT(adjTens0, TRANSFORM(RECORDOF(LEFT), SELF.wi := ctr, SELF := LEFT), LOCAL);
+        // If this is the tensor with the largest rec size, don't need to adjust.  Otherwise adjust.
+        newTens := IF(ctr = largestRecWI, thisTens, adjTens);
+        outTens := tl(wi != ctr) + newTens;
+        return outTens;
+      END;
+      reAligned := LOOP(tensList, numTensors, LEFT.wi >= COUNTER, adjustTensors(ROWS(LEFT), COUNTER));
+      RETURN SORT(reAligned, sliceId, LOCAL);
+    END; // AlignTensors
   END; // R4
 END; // t_Tensor
