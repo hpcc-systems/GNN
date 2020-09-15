@@ -17,4 +17,13 @@ EXPORT Types := MODULE
     STRING metricName;
     REAL8 value;
   END;
+  /**
+    * Record to use for defining complex (i.e. Non-Sequential, Functional) models
+    * using the DefineFuncModel() GNNI method.
+    */
+  EXPORT FuncLayerDef := RECORD
+    STRING layerName;
+    STRING layerDef;
+    SET OF STRING predecessors;
+  END;
 END;

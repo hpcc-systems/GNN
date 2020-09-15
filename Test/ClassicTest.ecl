@@ -21,9 +21,14 @@ TensData := Tensor.R4.TensData;
 RAND_MAX := POWER(2,32) -1;
 
 // Test parameters
-trainCount := 1000;
+trainCount := 10000;
 testCount := 1000;
 featureCount := 5;
+batchSize := 1024;
+numEpochs := 10;
+trainToLoss := .0001;
+bsr := .25; // BatchSizeReduction.  1 = no reduction.  .25 = reduction to 25% of original.
+lrr := 1.0;  // Learning Rate Reduction.  1 = no reduction.  .1 = reduction to 10 percent of original.
 // END Test parameters
 
 // Prepare training data.
@@ -85,9 +90,6 @@ trainY0 := NORMALIZE(train, 1, TRANSFORM(TensData,
 trainX := Tensor.R4.MakeTensor([0, featureCount], trainX0);
 trainY:= Tensor.R4.MakeTensor([0, 1], trainY0);
 
-OUTPUT(trainX, NAMED('X1'));
-OUTPUT(trainY, NAMED('y1'));
-
 testX0 := NORMALIZE(test, featureCount, TRANSFORM(TensData,
                             SELF.indexes := [LEFT.id, COUNTER],
                             SELF.value := LEFT.x[COUNTER]));
@@ -110,7 +112,7 @@ ldef := ['''layers.Dense(256, activation='tanh', input_shape=(5,))''',
 
 // compileDef defines the compile line to use for compiling the defined model.
 // Note that 'model.' is implied, and should not be included in the compile line.
-compileDef := '''compile(optimizer=tf.keras.optimizers.SGD(.05),
+compileDef := '''compile(optimizer=tf.keras.optimizers.SGD(.02),
               loss=tf.keras.losses.mean_squared_error,
               metrics=[tf.keras.metrics.mean_squared_error])
               ''';
@@ -138,7 +140,9 @@ OUTPUT(wts, NAMED('InitWeights'));
 
 // Fit trains the models, given training X and Y data.  BatchSize is not the Keras batchSize,
 // but defines how many records are processed on each node before synchronizing the weights
-mod2 := GNNI.Fit(mod, trainX, trainY, batchSize := 128, numEpochs := 5);
+mod2 := GNNI.Fit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs,
+                      trainToLoss := trainToLoss, learningRateReduction := lrr,
+                      batchSizeReduction := bsr);
 
 OUTPUT(mod2, NAMED('mod2'));
 

@@ -1,6 +1,9 @@
 /*##############################################################################
 ## HPCC SYSTEMS software Copyright (C) 2019 HPCC Systems.  All rights reserved.
-############################################################################## */
+##############################################################################*/
+/**
+  * Test the TensorExtract module
+  */
 IMPORT Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
@@ -45,13 +48,17 @@ OUTPUT(train0, NAMED('trainData'));
 trainX0 := NORMALIZE(train0, featureCount, TRANSFORM(TensData,
                             SELF.indexes := [LEFT.id, COUNTER],
                             SELF.value := LEFT.x[COUNTER]));
-trainY0 := NORMALIZE(train0, 1, TRANSFORM(TensData,
-                            SELF.indexes := [LEFT.id, COUNTER],
-                            SELF.value := LEFT.y));
-X := Tensor.R4.MakeTensor([0, featureCount], trainX0);
-Y:= Tensor.R4.MakeTensor([0, 1], trainY0);
+
+// Test with 2 tensors in a Tensor List.  It's okay that they're both the same contents.
+// We manually align the tensors since they would normally be distributed differently
+// because of the different wi's.
+X1 := Tensor.R4.MakeTensor([0, featureCount], trainX0, wi := 1);
+X2 := PROJECT(Tensor.R4.MakeTensor([0, featureCount], trainX0, wi := 1),
+                TRANSFORM(RECORDOF(LEFT),
+                          SELF.wi := 2,
+                          SELF := LEFT));
+X := X1 + X2;
 OUTPUT(X, NAMED('X'));
-OUTPUT(Y, NAMED('Y'));
 
 eX1 := int.TensExtract(X, 1, 10);
 eX2 := int.TensExtract(X, 11, 10);

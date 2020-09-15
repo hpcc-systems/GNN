@@ -38,6 +38,8 @@ trainCount := 1000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
+numEpochs := 5;
+batchSize := 128;
 // End of Test Parameters
 
 // Prepare training data.
@@ -65,11 +67,11 @@ END;
 // Build the training data
 train0 := DATASET(trainCount, TRANSFORM(trainRec,
                       SELF.id := COUNTER,
-                      SELF.x := [(RANDOM() % RAND_MAX) / RAND_MAX -.5,
-                                  (RANDOM() % RAND_MAX) / RAND_MAX -.5,
-                                  (RANDOM() % RAND_MAX) / RAND_MAX -.5,
-                                  (RANDOM() % RAND_MAX) / RAND_MAX -.5,
-                                  (RANDOM() % RAND_MAX) / RAND_MAX -.5],
+                      SELF.x := [(RANDOM() % RAND_MAX) / (RAND_MAX / 2) - 1,
+                                  (RANDOM() % RAND_MAX) / (RAND_MAX / 2) - 1,
+                                  (RANDOM() % RAND_MAX) / (RAND_MAX / 2) - 1,
+                                  (RANDOM() % RAND_MAX) / (RAND_MAX / 2) - 1,
+                                  (RANDOM() % RAND_MAX) / (RAND_MAX / 2) - 1],
                       SELF.y := [])
                       );
 // Be sure to compute Y in a second step.  Otherewise, the RANDOM() will be executed twice and the Y will be based
@@ -97,7 +99,7 @@ trainX := NORMALIZE(train, featureCount, TRANSFORM(NumericField,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.x[COUNTER]));
-trainY := NORMALIZE(train, 3, TRANSFORM(NumericField,
+trainY := NORMALIZE(train, classCount, TRANSFORM(NumericField,
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
@@ -111,7 +113,7 @@ testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.x[COUNTER]));
-testY := NORMALIZE(test, 3, TRANSFORM(NumericField,
+testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
@@ -129,8 +131,8 @@ ldef := ['''layers.Dense(16, activation='tanh', input_shape=(5,))''',
 // compileDef defines the compile line to use for compiling the defined model.
 // Note that 'model.' is implied, and should not be included in the compile line.
 compileDef := '''compile(optimizer=tf.keras.optimizers.SGD(.05),
-              loss=tf.keras.losses.mean_squared_error,
-              metrics=[tf.keras.metrics.mean_squared_error])
+              loss=tf.keras.losses.categorical_crossentropy,
+              metrics=['accuracy'])
               ''';
 
 // Note that the order of the GNNI functions is maintained by passing tokens returned from one call
@@ -155,7 +157,7 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Fit trains the models, given training X and Y data.  BatchSize is not the Keras batchSize,
 // but defines how many records are processed on each node before synchronizing the weights
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
-mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := 128, numEpochs := 20);
+mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
 OUTPUT(mod2, NAMED('mod2'));
 
