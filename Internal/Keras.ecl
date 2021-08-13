@@ -347,6 +347,64 @@ EXPORT Keras := MODULE
       # We had an error.  Format the exception and return it in the kString
       return [(nodeId, 1, kStrTypeDict['status'], format_exc('DefineMod'))]
   ENDEMBED; // DefineModel
+  /** Function to load a pre-trained Keras model and (optionally) compile the model.
+    * Returns a kString dataset.  An empty string indicates success.  Otherwise
+    * the kString record contains an error message.
+    * DefineKAModel gets called on each node of the cluster.
+    */
+  EXPORT STREAMED DATASET(kString) DefineKAModel(STRING fname, STREAMED DATASET(kString) mdef, UNSIGNED4 seqId)
+                      := EMBED(Python: globalscope(globalScope), persist('query'), activity)
+    try:
+      import tensorflow.compat.v1 as tf # V2.x
+      tf.disable_v2_behavior()
+    except:
+      import tensorflow as tf # V 1.x
+    from tensorflow.keras import layers
+    global nextModId
+    try:
+      # Allocate a new modelId
+      # Make sure we do it atomically to avoid conflict with
+      # another model running on another thread
+      threadlock.acquire()
+      modId = nextModId
+      nextModId += 1
+      threadlock.release()
+      # Create a new keras / tensorflow context.  It sometimes gets lost between calls,
+      # so we explicitly restore it before each call that uses it.
+      # Note that for each model, we create a new session and new graph under the hood.
+      # The graph is stored within the session, so only the session and model are stored,
+      # both by model id.
+      graph = tf.Graph()
+      with graph.as_default():
+        tfSession = tf.Session()
+        with tfSession.as_default():
+          for rec in mdef:
+            if rec[0] != nodeId:
+              # Make sure we are only processing data meant for this node.
+              continue
+            rectype = rec[2]
+            # If it is a layer definition string.  Add it to the model.
+            if rectype == kStrTypeDict['layer']:
+              mod = eval ("tf.keras.applications." + fname + "(" + rec[3] + ")")
+            # If it's a compile string, use it to compile the model.  All
+            # layer strings need to precede any compile strings.  Only one
+            # compile string should be supplied.
+            elif rectype == kStrTypeDict['compile']:
+              exec('mod.' + rec[3])
+          # For some reason we need to do a get_weights / set_weights here, or set_weights
+          # fails later???
+          w = mod.get_weights()
+          mod.set_weights(w)
+          # Add this model to the model cache
+          modcache[modId] = mod
+          # And the session to the session cache
+          sesscache[modId] = tfSession
+      # We succeeded.  Return a blank status to indicate success.
+      return [(nodeId, modId, kStrTypeDict['status'], '')]
+    except:
+      # We had an error.  Format the exception and return it in the kString
+      return [(nodeId, 1, kStrTypeDict['status'], format_exc('DefineKAMod'))]
+  ENDEMBED; // DefineKAModel
   /** Function to Define a Functional (i.e. Non-Sequential) model and (optionally)
     * compile the model.
     * Returns a kString dataset.  An empty string indicates success.  Otherwise
