@@ -608,6 +608,7 @@ EXPORT Keras := MODULE
       xAL = Tens2NpList(x, recordOriented = True)
       # Convert the Y tensor to a numpy array
       yAL = Tens2NpList(y, recordOriented = True)
+      validxy = True
       if xAL and yAL and xAL[0].size > 0 and yAL[0].size > 0:
         # We've got some data
         # Do some error checking.
@@ -616,6 +617,14 @@ EXPORT Keras := MODULE
           yA = yAL[i]
           if xA.size == 0 or yA.size == 0 or xA.shape[0] != yA.shape[0]:
             assert 1 == 0, 'Fit: X and Y sizes do not match or are zero: xShape = ' + str(xA.shape) + ', yShape = ' + str(yA.shape)
+          if xA.shape[0] == 0:
+            # At least one Tensor has zero length
+            validxy = False
+      else:
+        # No valid x or y data
+        validxy = False
+      if validxy:
+        # Received valid data
         # Restore the keras / tensorflow context for this model.
         tfSession = sesscache[modelid]
         with tfSession.as_default():
@@ -623,7 +632,7 @@ EXPORT Keras := MODULE
             # Set the starting weights
             mod.set_weights(wA)
             # Run one batch to fit the model
-            tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False, steps_per_epoch = 1)
+            tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
             # Update the cumulative (epoch) loss
             currLoss = tfHistory.history['loss'][-1]
             cumLoss[modelid] += currLoss
@@ -635,7 +644,7 @@ EXPORT Keras := MODULE
         for i in range(len(wA)):
           wA_changes.append((wA_out[i] - wA[i]) * lr)
       else:
-        # No X / Y data received.  Send null changes
+        # No valid X / Y data received. Send null changes
         for i in range(len(wA)):
           wA_changes.append(np.zeros_like(wA[i]))
       # Return the weight changes as a Tensor List.
@@ -682,7 +691,7 @@ EXPORT Keras := MODULE
       with tfSession.as_default():
         with tfSession.graph.as_default():
           # Evaluate the Keras model
-          metrics = mod.evaluate(xA, yA)
+          metrics = mod.evaluate(xA, yA, steps = 1)
           # Get the name for each metric
           mNames = mod.metrics_names
           for i in range(len(metrics)):
@@ -731,13 +740,13 @@ EXPORT Keras := MODULE
               if sliceId != currSlice:
                 # Got the next slice.  Now we should have all the wi's for the previous slice.
                 # Process the full slice.
-                if xAL:
+                if xAL and xAL[0].shape[0] > 0:
                   # We have a slice accumulated.
                   # Process it.
                   # Restore the keras / tensorflow context for this model.
                   with tfSession.as_default():
                     with tfSession.graph.as_default():
-                      predA = mod.predict(xAL, steps=1)
+                      predA = mod.predict(xAL)
                   for i in range(len(predA)):
                     sliceA = predA[i]
                     recSize = int(np.prod(sliceA.shape[1:]))
@@ -759,11 +768,11 @@ EXPORT Keras := MODULE
               xAL.append(xA)
               # END for slice in x_dat
             # Process the last sliceId
-            if xAL:
+            if xAL and xAL[0].shape[0] > 0:
               # Restore keras / tf context
               with tfSession.as_default():
                 with tfSession.graph.as_default():
-                  predA = mod.predict(xAL, steps=1)
+                  predA = mod.predict(xAL)
               if type(predA) != type([]):
                 predA = [predA]
               for i in range(len(predA)):
