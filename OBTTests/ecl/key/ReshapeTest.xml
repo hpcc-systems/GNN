@@ -1,0 +1,6 @@
+<Dataset name='Test1'>
+ <Row><Test1>Pass</Test1></Row>
+</Dataset>
+<Dataset name='Test2'>
+ <Row><passing>Pass</passing></Row>
+</Dataset>
