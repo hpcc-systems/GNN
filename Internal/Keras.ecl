@@ -96,7 +96,7 @@ EXPORT Keras := MODULE
         if len(exc) < 100000:
           return func + ': ' + exc
         else:
-          return func + ': ' + exc[:200] + ' ... ' + exc[-200:]
+          return func + ': ' + exc[:2000] + ' ... ' + exc[-2000:]
       format_exc = _format_exc
 
       # Assign GPUs to Thor nodes if needed.
@@ -280,7 +280,8 @@ EXPORT Keras := MODULE
         initGlobals()
       except:
         # We had an exception.  Format and return it.
-        return [(nodeId, 1,4, format_exc('Init'))]
+        import traceback as tb
+        assert False, 'Keras.Init: tb=' + tb.format_exc()
     finally:
       # Always release the threadlock, success or fail.
       threadlock.release()
