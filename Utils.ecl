@@ -64,7 +64,7 @@ EXPORT Utils := MODULE
     * in different ways.
     * @param td A 2-D tensor data set with a probability for each class.
     * @return A 1-D dataset of TensData with a class label for each observation.
-    * @see FromeOneHot
+    * @see Utils.FromOneHot
     * @see Tensor.R4.TensData
     */
   EXPORT DATASET(TensDat) Probabilities2Class(DATASET(TensDat) td) := FUNCTION
