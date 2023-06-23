@@ -27,12 +27,16 @@ IMPORT GNN.Types;
 IMPORT GNN.GNNI;
 IMPORT GNN.Internal AS Int;
 IMPORT ML_Core AS mlc;
+IMPORT Std.System.Thorlib;
+
+nodeId := Thorlib.node();
+nNodes := Thorlib.nodes();
 
 NumericField := mlc.Types.NumericField;
 
+effNodes := 2;
 // Prepare training data
 RAND_MAX := POWER(2,32) -1;
-
 // Test parameters
 trainCount := 1000;
 testCount := 100;
@@ -94,31 +98,62 @@ test := PROJECT(test0, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1],
 
 // Break the training and test data into X (independent) and Y (dependent) data sets.
 // Format as NumericField data.
-trainX := NORMALIZE(train, featureCount, TRANSFORM(NumericField,
+
+trainX0 := NORMALIZE(train, featureCount, TRANSFORM(NumericField,
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.x[COUNTER]));
-trainY := NORMALIZE(train, classCount, TRANSFORM(NumericField,
+trainY0 := NORMALIZE(train, classCount, TRANSFORM(NumericField,
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.y[COUNTER]));
+trainX1 := Tensor.R4.dat.fromMatrix(trainX0);
+trainY1 := Tensor.R4.dat.fromMatrix(trainY0);
+
+trainX := Tensor.R4.MakeTensor([0, featureCount], trainX1);
+trainY := Tensor.R4.MakeTensor([0, classCount], trainY1);
+
+nNodesPerEff := ROUNDUP(nNodes/effNodes); 
+        
+maxInputWi := MAX(trainX, wi);
+// Change the wi's for outputs (y) so that they are after the input wi's
+y1 := PROJECT(trainY, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
+aligned := Tensor.R4.AlignTensors(trainX + y1);
+// Now change the Y's wi back to the original numbers
+xAl := aligned(wi <= maxInputWi);
+yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
+eBatchSize := 512;
+batchPos := 1;
+xBatch := int.TensExtract(xAl, batchPos, eBatchSize, limitNodes:=effNodes);
+yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes);
+
+OUTPUT(xBatch, NAMED('xBatch'));
+OUTPUT(yBatch, NAMED('yBatch'));
+
+// totalRecords := Tensor.R4.GetRecordCount(yAl);
+
+OUTPUT(xAl, NAMED('XAL'));
+OUTPUT(YAl, NAMED('YAL'));
+OUTPUT(trainX0, NAMED('X1_0'));
+OUTPUT(trainY0, NAMED('y1_o'));
+OUTPUT(trainX, NAMED('X'));
+OUTPUT(trainY, NAMED('y'));
+
+testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField, // 5
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.x[COUNTER]));
+testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,  // 3
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.y[COUNTER]));
 
-OUTPUT(trainX, NAMED('X1'));
-OUTPUT(trainY, NAMED('y1'));
-
-testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField,
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.x[COUNTER]));
-testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.y[COUNTER]));
-
+OUTPUT(count(trainY[1].densedata), Named('TestY1_Count'));
+OUTPUT(count(trainY[2].densedata), Named('TestY2_Count'));
 
 // ldef provides the set of Keras layers that form the neural network.  These are
 // provided as strings representing the Python layer definitions as would be provided
@@ -157,7 +192,9 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Fit trains the models, given training X and Y data.  BatchSize is not the Keras batchSize,
 // but defines how many records are processed on each node before synchronizing the weights
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
-mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+//mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+
+mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
 
 OUTPUT(mod2, NAMED('mod2'));
 

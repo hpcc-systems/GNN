@@ -446,7 +446,7 @@ EXPORT GNNI := MODULE
       SELF := l;
     END;
     outWeights0 := ROLLUP(combined, doRollup(LEFT, RIGHT), wi, sliceId, LOCAL);
-    outWeights := Tensor.R4.Replicate(outWeights0);
+    outWeights := Tensor.R4.Replicate(outWeights0); // TODO: pass: limitNodes to limit 
     RETURN outWeights;
   END;
   /**
@@ -618,29 +618,29 @@ EXPORT GNNI := MODULE
           // Calculate the Learning Rate for this Epoch (eLR)
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-          batchesPerEpoch := ROUNDUP(totalRecords / effNodes / eBatchSize);
+          batchesPerEpoch := ROUNDUP(totalRecords / effNodes_ / eBatchSize);
           DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
             // Train the model and Get the weight changes from each node
             batchPos := (batchNum-1) * eBatchSize + 1;
-            xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes);
-            yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes);
+            xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
+            yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
             wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
             // Move all the changes for a given wi and slice to the same node.  Each
             // node has a set of wi/sliceIds to roll up.  Note that the original
             // weights are already replicated to all nodes.
             wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
-            newWts := rollUpdates(wts2((wi + sliceId) % effNodes = nodeId), wtChanges);
+            newWts := rollUpdates(wts2((wi + sliceId) % effNodes_ = nodeId), wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
             batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                    kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + limitNodes);
+                    kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
             RETURN newWts;
           END;
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
           epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
           logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
-                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + ', nNode = ' + limitNodes);
+                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + ', nNode = ' + effNodes_);
           // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
           // 999999 to indicate that we are done.
           markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));

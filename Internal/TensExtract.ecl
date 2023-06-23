@@ -4,7 +4,7 @@ IMPORT GNN.Tensor;
 IMPORT Std.System.Thorlib;
 
 nodeId := Thorlib.node();
-//nNodes := Thorlib.nodes();
+nNodes := Thorlib.nodes();
 
 t_Tensor := Tensor.R4.t_Tensor;
 
@@ -196,9 +196,10 @@ EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
   // for range(reminderNodes): Nodes[id] = baseNodePerEffNode+1
 
   // definition: extract(STREAMED DATASET(t_Tensor) tens, UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice
-  extractedData0 := extract(tens, pos-1, datcount, nodeId % effNodes, effNodes, MAX_SLICE);
-  extractedDataD := DISTRIBUTE(extractedData0, ROUNDUP(Thorlib.nodes() / effNodes));
-  extractedData := IF(limitNodes=0, extractedData0, extractedDataD);
+  extractedData0 := extract(tens, pos-1, datcount, nodeId, nNodes, MAX_SLICE);
+  extractedDataD := DISTRIBUTE(extractedData0, nodeId DIV effNodes); // ROUNDUP(Thorlib.nodes() / effNodes)
+  extractDataD1 := Project(extractedDataD, TRANSFORM(RECORDOF(LEFT), SELF.nodeId:=nodeId, SELF:=LEFT));
+  extractedData := IF(limitNodes=0, extractedData0, extractDataD1);
   
   RETURN SORT(extractedData, wi, sliceId, LOCAL);
 END;
