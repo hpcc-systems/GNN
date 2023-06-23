@@ -34,7 +34,7 @@ nNodes := Thorlib.nodes();
 
 NumericField := mlc.Types.NumericField;
 
-effNodes := 2;
+effNodes := 3;
 // Prepare training data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
@@ -194,7 +194,7 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
 //mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
-mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
+mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := 3);
 
 OUTPUT(mod2, NAMED('mod2'));
 
@@ -205,7 +205,7 @@ losses := GNNI.GetLoss(mod2);
 // compile line.  This is the NumericField form of EvaluateMod.
 metrics := GNNI.EvaluateNF(mod2, testX, testY);
 
-OUTPUT(metrics, NAMED('metrics'));
+// OUTPUT(metrics, NAMED('metrics'));
 
 // PredictNF computes the neural network output given a set of inputs.
 // This is the NumericField form of Predict. Note that these predictions are
@@ -215,5 +215,5 @@ OUTPUT(metrics, NAMED('metrics'));
 // Utils.Probabilities2Class.
 preds := GNNI.PredictNF(mod2, testX);
 
-OUTPUT(testY, ALL, NAMED('testDat'));
-OUTPUT(preds, NAMED('predictions'));
+// OUTPUT(testY, ALL, NAMED('testDat'));
+// OUTPUT(preds, NAMED('predictions'));

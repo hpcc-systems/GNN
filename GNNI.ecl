@@ -595,8 +595,7 @@ EXPORT GNNI := MODULE
       REAL trainToLoss = 0,
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
-      UNSIGNED4 localBatchSize = 32,
-      INTEGER effNodes=0) := FUNCTION
+      UNSIGNED4 localBatchSize = 32) := FUNCTION
 
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
@@ -618,7 +617,7 @@ EXPORT GNNI := MODULE
           // Calculate the Learning Rate for this Epoch (eLR)
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-          batchesPerEpoch := ROUNDUP(totalRecords / effNodes_ / eBatchSize);
+          batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
           DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
             // Train the model and Get the weight changes from each node
             batchPos := (batchNum-1) * eBatchSize + 1;
@@ -630,7 +629,7 @@ EXPORT GNNI := MODULE
             // weights are already replicated to all nodes.
             wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
-            newWts := rollUpdates(wts2((wi + sliceId) % effNodes_ = nodeId), wtChanges);
+            newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
             batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
@@ -650,10 +649,11 @@ EXPORT GNNI := MODULE
         finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
         RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
         END;
-
-    RETURN IF(effNodes_<nNodes, partialFit(
-        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize, effNodes_), Fit(
-        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
+    RETURN partialFit(
+        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize);
+    // RETURN IF(effNodes_<nNodes, partialFit(
+        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
+        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
 
   END; // nNodeFit
   /**

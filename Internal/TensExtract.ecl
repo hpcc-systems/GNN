@@ -8,16 +8,6 @@ nNodes := Thorlib.nodes();
 
 t_Tensor := Tensor.R4.t_Tensor;
 
-SHARED INTEGER getEffNodesNumber(nodeNumber) := FUNCTION
-    /*
-    nodeNumber: default value = 0 (meaning distribute to all nodes)
-                if totalAvailableNode<nodeNumber<=0 then fallback to totalAvailableNodes,
-    */
-    totalAvailableNodes := Thorlib.nodes();
-    eNodeNumber := IF(nodeNumber>0, nodeNumber, totalAvailableNodes);
-    // clipping eNodeNumber to totalAvailableNodes
-    return IF(eNodeNumber<totalAvailableNodes, eNodeNumber, totalAvailableNodes);
-END;
 
 MAX_SLICE := POWER(2, 24);
 
@@ -33,6 +23,17 @@ MAX_SLICE := POWER(2, 24);
   */
 EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
                                     UNSIGNED datcount, INTEGER limitNodes=0) := FUNCTION
+  INTEGER getEffNodesNumber(nodeNumber) := FUNCTION
+    /*
+    nodeNumber: default value = 0 (meaning distribute to all nodes)
+                if totalAvailableNode<nodeNumber<=0 then fallback to totalAvailableNodes,
+    */
+    totalAvailableNodes := Thorlib.nodes();
+    eNodeNumber := IF(nodeNumber>0, nodeNumber, totalAvailableNodes);
+    // clipping eNodeNumber to totalAvailableNodes
+    return IF(eNodeNumber<totalAvailableNodes, eNodeNumber, totalAvailableNodes);
+  END;
+
   // Python embed function to do most of the heavy lifting.
   STREAMED DATASET(t_Tensor) extract(STREAMED DATASET(t_Tensor) tens,
             UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice) := EMBED(Python: activity)
@@ -198,7 +199,8 @@ EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
   // definition: extract(STREAMED DATASET(t_Tensor) tens, UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice
   extractedData0 := extract(tens, pos-1, datcount, nodeId, nNodes, MAX_SLICE);
   extractedDataD := DISTRIBUTE(extractedData0, nodeId DIV effNodes); // ROUNDUP(Thorlib.nodes() / effNodes)
-  extractDataD1 := Project(extractedDataD, TRANSFORM(RECORDOF(LEFT), SELF.nodeId:=nodeId, SELF:=LEFT));
+
+  extractDataD1 := Project(NOCOMBINE(extractedDataD), TRANSFORM(RECORDOF(LEFT), SELF.nodeId:=nodeId, SELF:=LEFT));
   extractedData := IF(limitNodes=0, extractedData0, extractDataD1);
   
   RETURN SORT(extractedData, wi, sliceId, LOCAL);
