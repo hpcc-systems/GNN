@@ -34,7 +34,7 @@ nNodes := Thorlib.nodes();
 
 NumericField := mlc.Types.NumericField;
 
-effNodes := 3;
+effNodes := 5;
 // Prepare training data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
@@ -194,7 +194,7 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
 //mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
-mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := 3);
+mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
 
 OUTPUT(mod2, NAMED('mod2'));
 

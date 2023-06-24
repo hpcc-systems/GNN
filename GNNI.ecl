@@ -9,6 +9,7 @@ IMPORT GNN.Internal.Types AS iTypes;
 IMPORT GNN.Internal.Keras;
 IMPORT GNN.Tensor;
 IMPORT Std.System.Thorlib;
+IMPORT STD.Date as Date; 
 IMPORT Std.System.Log AS Syslog;
 IMPORT ML_Core.Types AS mlTypes;
 NumericField := mlTypes.NumericField;
@@ -638,8 +639,10 @@ EXPORT GNNI := MODULE
           END;
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
           epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
+
           logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
-                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + ', nNode = ' + effNodes_);
+                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
+                          ', nNode = ' + effNodes_+' Time: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H-%M-%S'));
           // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
           // 999999 to indicate that we are done.
           markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
