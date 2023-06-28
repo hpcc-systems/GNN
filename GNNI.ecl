@@ -597,7 +597,7 @@ EXPORT GNNI := MODULE
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
       UNSIGNED4 localBatchSize = 32) := FUNCTION
-
+        startTime := STD.Date.CurrentTime(True);
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
         initWts0 := GetWeights(model);
@@ -614,8 +614,10 @@ EXPORT GNNI := MODULE
         xAl := aligned(wi <= maxInputWi);
         yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
         totalRecords := Tensor.R4.GetRecordCount(yAl);
+        //START_TIME
         DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
           // Calculate the Learning Rate for this Epoch (eLR)
+          // start_time=
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
           batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
@@ -637,12 +639,14 @@ EXPORT GNNI := MODULE
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
             RETURN newWts;
           END;
+          // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
           epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-
+          endtime :=:= STD.Date.CurrentTime(True);
+          timetaken := endtime-starttime;
           logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
                           kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
-                          ', nNode = ' + effNodes_+' Time: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H-%M-%S'));
+                          ', nNode = ' + effNodes_+' Time: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Time: '+timetaken );
           // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
           // 999999 to indicate that we are done.
           markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
@@ -650,6 +654,7 @@ EXPORT GNNI := MODULE
           RETURN WHEN(epochWts, logProgress);
         END;
         finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
+        
         RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
         END;
     RETURN partialFit(
