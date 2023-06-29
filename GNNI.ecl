@@ -7,6 +7,7 @@ IMPORT GNN.Internal as int;
 IMPORT GNN.Types;
 IMPORT GNN.Internal.Types AS iTypes;
 IMPORT GNN.Internal.Keras;
+IMPORT STD; 
 IMPORT GNN.Tensor;
 IMPORT Std.System.Thorlib;
 IMPORT STD.Date as Date; 
@@ -596,8 +597,8 @@ EXPORT GNNI := MODULE
       REAL trainToLoss = 0,
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
-      UNSIGNED4 localBatchSize = 32) := FUNCTION
-        startTime := STD.Date.CurrentTime(True);
+      UNSIGNED4 localBatchSize = 32) := FUNCTION        
+        // OUTPUT(startTime);
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
         initWts0 := GetWeights(model);
@@ -606,7 +607,8 @@ EXPORT GNNI := MODULE
         initWts := Tensor.R4.Replicate(initWts0);
         // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
         // for each input and output tensor.
-        maxInputWi := MAX(x, wi);
+        startTime := Date.CurrentSeconds(true);
+        maxInputWi := if(startTime>0, MAX(x, wi), MAX(x, wi));
         // Change the wi's for outputs (y) so that they are after the input wi's
         y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
         aligned := Tensor.R4.AlignTensors(x + y1);
@@ -642,11 +644,11 @@ EXPORT GNNI := MODULE
           // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
           epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-          endtime :=:= STD.Date.CurrentTime(True);
-          timetaken := endtime-starttime;
-          logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
+          endTime := STD.Date.CurrentTime(True);
+          timeTakenForEpoch := abs(endtime-startTime);
+          logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Duration: '+timeTakenForEpoch +' Training Status: ModelId = ' +
                           kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
-                          ', nNode = ' + effNodes_+' Time: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Time: '+timetaken );
+                          ', nNode = ' + effNodes_);
           // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
           // 999999 to indicate that we are done.
           markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));

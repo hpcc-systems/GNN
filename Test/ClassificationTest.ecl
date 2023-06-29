@@ -19,6 +19,9 @@
   * These examples also illustrate how to use the one-hot encoding
   * / decoding utilities.
   */
+IMPORT STD;
+#OPTION('outputlimitMb',1848)
+//STD.File.LogicalFileList('*', 1, 1, FALSE); 
 IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
@@ -38,7 +41,7 @@ effNodes := 5;
 // Prepare training data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
-trainCount := 1000;
+trainCount := 10000000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
@@ -81,7 +84,7 @@ train0 := DATASET(trainCount, TRANSFORM(trainRec,
 // Be sure to compute Y in a second step.  Otherewise, the RANDOM() will be executed twice and the Y will be based
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
 train := PROJECT(train0, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
-OUTPUT(train, NAMED('trainData'));
+//OUTPUT(train, NAMED('trainData'));
 
 // Build the test data.  Same process as the training data.
 test0 := DATASET(testCount, TRANSFORM(trainRec,
@@ -129,17 +132,17 @@ batchPos := 1;
 xBatch := int.TensExtract(xAl, batchPos, eBatchSize, limitNodes:=effNodes);
 yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes);
 
-OUTPUT(xBatch, NAMED('xBatch'));
-OUTPUT(yBatch, NAMED('yBatch'));
+//OUTPUT(xBatch, NAMED('xBatch'));
+//OUTPUT(yBatch, NAMED('yBatch'));
 
 // totalRecords := Tensor.R4.GetRecordCount(yAl);
 
-OUTPUT(xAl, NAMED('XAL'));
-OUTPUT(YAl, NAMED('YAL'));
-OUTPUT(trainX0, NAMED('X1_0'));
-OUTPUT(trainY0, NAMED('y1_o'));
-OUTPUT(trainX, NAMED('X'));
-OUTPUT(trainY, NAMED('y'));
+//OUTPUT(xAl, NAMED('XAL'));
+//OUTPUT(YAl, NAMED('YAL'));
+//OUTPUT(trainX0, NAMED('X1_0'));
+//OUTPUT(trainY0, NAMED('y1_o'));
+//OUTPUT(trainX, NAMED('X'));
+//OUTPUT(trainY, NAMED('y'));
 
 testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField, // 5
                             SELF.wi := 1,
@@ -152,14 +155,16 @@ testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,  // 3
                             SELF.number := COUNTER,
                             SELF.value := LEFT.y[COUNTER]));
 
-OUTPUT(count(trainY[1].densedata), Named('TestY1_Count'));
-OUTPUT(count(trainY[2].densedata), Named('TestY2_Count'));
+//OUTPUT(count(trainY[1].densedata), Named('TestY1_Count'));
+//OUTPUT(count(trainY[2].densedata), Named('TestY2_Count'));
 
 // ldef provides the set of Keras layers that form the neural network.  These are
 // provided as strings representing the Python layer definitions as would be provided
 // to Keras.  Note that the symbol 'tf' is available for use (import tensorflow as tf), as is
 // the symbol 'layers' (from tensorflow.keras import layers).
 ldef := ['''layers.Dense(16, activation='tanh', input_shape=(5,))''',
+          '''layers.Dense(16, activation='relu')''',
+          '''layers.Dense(16, activation='relu')''',
           '''layers.Dense(16, activation='relu')''',
           '''layers.Dense(3, activation='softmax')'''];
 
@@ -215,5 +220,5 @@ metrics := GNNI.EvaluateNF(mod2, testX, testY);
 // Utils.Probabilities2Class.
 preds := GNNI.PredictNF(mod2, testX);
 
-// OUTPUT(testY, ALL, NAMED('testDat'));
-// OUTPUT(preds, NAMED('predictions'));
+OUTPUT(testY, ALL, NAMED('testDat'));
+OUTPUT(preds, NAMED('predictions'));
