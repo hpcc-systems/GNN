@@ -37,7 +37,7 @@ nNodes := Thorlib.nodes();
 
 NumericField := mlc.Types.NumericField;
 
-effNodes := 5;
+effNodes := 1;
 // Prepare training data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
@@ -118,15 +118,24 @@ trainY1 := Tensor.R4.dat.fromMatrix(trainY0);
 trainX := Tensor.R4.MakeTensor([0, featureCount], trainX1);
 trainY := Tensor.R4.MakeTensor([0, classCount], trainY1);
 
-nNodesPerEff := ROUNDUP(nNodes/effNodes); 
-        
+
 maxInputWi := MAX(trainX, wi);
 // Change the wi's for outputs (y) so that they are after the input wi's
-y1 := PROJECT(trainY, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
+y1 := PROJECT(trainY, 
+                TRANSFORM(
+                  RECORDOF(LEFT), 
+                  SELF.wi := LEFT.wi + maxInputWi, 
+                  SELF := LEFT), 
+                LOCAL);
 aligned := Tensor.R4.AlignTensors(trainX + y1);
 // Now change the Y's wi back to the original numbers
 xAl := aligned(wi <= maxInputWi);
-yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
+yAl := PROJECT(aligned(wi > maxInputWi), 
+                TRANSFORM(
+                  RECORDOF(LEFT), 
+                  SELF.wi := LEFT.wi - maxInputWi, 
+                  SELF := LEFT), 
+                LOCAL);
 eBatchSize := 512;
 batchPos := 1;
 xBatch := int.TensExtract(xAl, batchPos, eBatchSize, limitNodes:=effNodes);
@@ -210,7 +219,7 @@ losses := GNNI.GetLoss(mod2);
 // compile line.  This is the NumericField form of EvaluateMod.
 metrics := GNNI.EvaluateNF(mod2, testX, testY);
 
-// OUTPUT(metrics, NAMED('metrics'));
+OUTPUT(metrics, NAMED('metrics'));
 
 // PredictNF computes the neural network output given a set of inputs.
 // This is the NumericField form of Predict. Note that these predictions are
