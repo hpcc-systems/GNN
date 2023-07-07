@@ -7,7 +7,7 @@ IMPORT GNN.Internal.Types AS iTypes;
 IMPORT Std.System.Thorlib;
 
 // hyperparam
-batchSize := 512;
+batchSize := 128;
 numEpochs := 5;
 effNodes := 0;
 
@@ -17,10 +17,14 @@ mnist_data_type := RECORD
 END;
 
 
-mnist_data_type_withid := RECORD
+mnist_data_type_withid_x := RECORD
+	 UNSIGNED id;   
+	 SET Image;
+END;
+
+mnist_data_type_withid_y := RECORD
 	 UNSIGNED id;     
      INTEGER1 label;
-	 DATA784 image;
 END;
 
 // how to convert hex to integer
@@ -29,37 +33,54 @@ test0 := DATASET('~mnist::test', mnist_data_type, THOR);
 trainBig0 := DATASET('~mnist::big::train', mnist_data_type, THOR);
 testBig0 := DATASET('~mnist::big::test', mnist_data_type, THOR);
 
-trainX1 := PROJECT(train0, TRANSFORM(mnist_data_type_withid, SELF.image:=LEFT.image, SELF.id := COUNTER, SELF := LEFT));
-trainY1 := PROJECT(train0, TRANSFORM(mnist_data_type_withid, SELF.label:=LEFT.label, SELF.id := COUNTER, SELF:= LEFT));
 
+SET byte2int(DATA784 image) := EMBED(Python)
+    import numpy as np
+    return np.asarray(image, dtype='B').astype('int').tolist()
+ENDEMBED;
 
+trainX1 := PROJECT(train0, TRANSFORM(mnist_data_type_withid_x, SELF.image:=byte2int(LEFT.image), SELF.id := COUNTER, SELF := LEFT));
+trainY1 := PROJECT(train0, TRANSFORM(mnist_data_type_withid_y, SELF.label:=LEFT.label, SELF.id := COUNTER, SELF:= LEFT));
+//output(trainX1);
 
 trainX2 := NORMALIZE(trainX1, 784, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, ((counter-1) div 28) + 1, ((counter-1) % 28) +1],
                             SELF.value := ( (REAL) (>UNSIGNED1<) LEFT.image[counter])/127.5 -1));
 
-trainY2 := NORMALIZE(trainY1, 1, TRANSFORM(Tensor.R4.TensData,
+trainY2 := NORMALIZE(trainY1, 10, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, counter],
-                            SELF.value := (REAL)LEFT.label));
-                            
-                            //(REAL)(UNSIGNED)LEFT.image[counter]));
+                            SELF.value := IF(COUNTER = LEFT.label + 1,1,SKIP)));
 
 trainX3 := Tensor.R4.MakeTensor([0,28, 28], trainX2);
-trainY3 := Tensor.R4.MakeTensor([0, 1], trainY2);
+trainY3 := Tensor.R4.MakeTensor([0, 10], trainY2);
 // output(trainX, named('trainX'));
-// output(trainY, named('trainY'));
+//output(trainY3, named('trainY3'));
+
+testX1 := PROJECT(test0, TRANSFORM(mnist_data_type_withid_x, SELF.image:=byte2int(LEFT.image), SELF.id := COUNTER, SELF := LEFT));
+testY1 := PROJECT(test0, TRANSFORM(mnist_data_type_withid_y, SELF.label:=LEFT.label, SELF.id := COUNTER, SELF:= LEFT));
+
+
+
+testX2 := NORMALIZE(testX1, 784, TRANSFORM(Tensor.R4.TensData,
+                            SELF.indexes := [LEFT.id, ((counter-1) div 28) + 1, ((counter-1) % 28) +1],
+                            SELF.value := ( (REAL) (>UNSIGNED1<) LEFT.image[counter])/127.5 -1));
+
+testY2 := NORMALIZE(testY1, 10, TRANSFORM(Tensor.R4.TensData,
+                            SELF.indexes := [LEFT.id, counter],
+                            SELF.value := IF(COUNTER = LEFT.label + 1,1,SKIP)));
+testX3 := Tensor.R4.MakeTensor([0,28, 28], testX2);
+testY3 := Tensor.R4.MakeTensor([0, 10], testY2);
 
 
 s := GNNI.GetSession();
 
-ldef := ['''layers.Dense(512, activation='tanh', input_shape=(784,))''',
+ldef := [ '''tf.keras.layers.Flatten(input_shape=(28,28))''',
+          '''layers.Dense(512, activation='tanh')''',
           '''layers.Dense(512, activation='relu')''',
           '''layers.Dense(10, activation='softmax')'''];
 
-compileDef := '''compile(optimizer=tf.keras.optimizers.Adam(0.001),
-              loss=tf.keras.losses.categorical_crossentropy,
-              metrics=['accuracy'])
-              ''';
+compileDef := '''compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])''';
+
 mod := GNNI.DefineModel(s, ldef, compileDef);
 
 wts := GNNI.GetWeights(mod);
@@ -70,14 +91,14 @@ mod2 := GNNI.Fit(mod, trainX3, trainY3, batchSize := batchSize, numEpochs := num
 OUTPUT(mod2, NAMED('mod2'));
 
 losses := GNNI.GetLoss(mod2);
-/*
-metrics := GNNI.EvaluateNF(mod2, testX, testY);
-preds := GNNI.PredictNF(mod2, testX);
+output(losses, NAMED('LOSSES'));
+metrics := GNNI.EvaluateMod(mod2, testX3, testY3);
+preds := GNNI.Predict(mod2, testX3);
 
-OUTPUT(testY, ALL, NAMED('testDat'));
+OUTPUT(testY3, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
 
-output(train0)
+/*
 // ldef := [
 // 	'''layers.Dense(256, activation='tanh', input_shape=(5,))''',
 // 	'''layers.Dense(256, activation='relu')''',

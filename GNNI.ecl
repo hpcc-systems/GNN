@@ -589,10 +589,10 @@ EXPORT GNNI := MODULE
         // OUTPUT(startTime);
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
-        initWts0 := GetWeights(model);
+        initWts := GetWeights(model);
         // // We get the weights from the first node and then copy them to all nodes
         // // so that everybody starts with the same weights
-        initWts := Tensor.R4.Replicate(initWts0);
+        // initWts := Tensor.R4.Replicate(initWts0);
         
         startTime := Date.CurrentSeconds(true);        
         // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
@@ -609,7 +609,6 @@ EXPORT GNNI := MODULE
         //START_TIME
         DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
           // Calculate the Learning Rate for this Epoch (eLR)
-          // start_time=
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
           batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
@@ -627,7 +626,7 @@ EXPORT GNNI := MODULE
             newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
             batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
-            logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
+            logProgress2 := Syslog.addWorkunitInformation('sn/ Training Status (2): ModelId = ' +
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + 1);
             RETURN newWts;
           END;
@@ -690,10 +689,8 @@ EXPORT GNNI := MODULE
         xAl := aligned(wi <= maxInputWi);
         yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
         totalRecords := Tensor.R4.GetRecordCount(yAl);
-        //START_TIME
         DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
           // Calculate the Learning Rate for this Epoch (eLR)
-          // start_time=
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
           batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
@@ -733,9 +730,11 @@ EXPORT GNNI := MODULE
         
         RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
         END;
-    RETURN IF(effnodes_=1, SingleNodeFit(
-        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
-        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
+    RETURN SingleNodeFit(
+        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize);
+    // RETURN IF(effnodes_=1, SingleNodeFit(
+        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
+        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
     // RETURN IF(effNodes_<nNodes, partialFit(
         // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
         // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
