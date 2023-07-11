@@ -582,8 +582,7 @@ EXPORT Keras := MODULE
               UNSIGNED4 epoch,
               UNSIGNED modelid = 0,
               UNSIGNED4 kbatchsize = 32,
-              REAL lr = 1.0,
-              INTEGER numNodes = 0) :=
+              REAL lr = 1.0) :=
             EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
       import tensorflow.compat.v1 as tf # V2.x
@@ -642,11 +641,11 @@ EXPORT Keras := MODULE
         # For each layer, subtract the new weights from the starting weights to compute
         # the weight updates.  Scale the changes by the learningRate (lr) so that we can
         # control the lr as a fraction of the learing rate used within the optimizer from compileMod.
-        if numNodes == 1:
-          return NpList2Tens(wA_out, isWeights = True)
-        else:
-          for i in range(len(wA)):
-            wA_changes.append((wA_out[i] - wA[i]) * lr)
+        #if numNodes == 1:
+        #  return NpList2Tens(wA_out, isWeights = True)
+        #else:
+        for i in range(len(wA)):
+          wA_changes.append((wA_out[i] - wA[i]) * lr)
       else:
         # No valid X / Y data received. Send null changes
         for i in range(len(wA)):
@@ -655,7 +654,7 @@ EXPORT Keras := MODULE
       return NpList2Tens(wA_changes, isWeights = True)
     except:
       # Error occurred, but no string returned.  So we do an assert to convey the error.
-      assert 1 == 0, format_exc('FitBatch-'+str(numNodes))
+      assert 1 == 0, format_exc('FitBatch: Exception')
   ENDEMBED; // FitBatch
   /**
     * Get the current epoch's accumulated average loss up to this point.

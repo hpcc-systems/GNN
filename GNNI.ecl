@@ -685,7 +685,9 @@ EXPORT GNNI := MODULE
             batchPos := (batchNum-1) * eBatchSize + 1;
             xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
             yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            newWts := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR, numNodes:=1), DATASET([], t_Tensor));
+            wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
+            wtChanges := wtChanges0;
+            newWts := wtChanges;
             // Move all the changes for a given wi and slice to the same node.  Each
             // node has a set of wi/sliceIds to roll up.  Note that the original
             // weights are already replicated to all nodes.
