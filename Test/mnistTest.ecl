@@ -45,8 +45,8 @@ trainY1 := PROJECT(train0, TRANSFORM(mnist_data_type_withid_y, SELF.label:=LEFT.
 
 trainX2 := NORMALIZE(trainX1, 784, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, ((counter-1) div 28) + 1, ((counter-1) % 28) +1],
-                            SELF.value := ( (REAL) (>UNSIGNED1<) LEFT.image[counter])/127.5 -1));
-
+                            SELF.value := ( (REAL) LEFT.image[counter])/127.5 -1));
+output(trainX2, named('trainX2'));
 trainY2 := NORMALIZE(trainY1, 10, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, counter],
                             SELF.value := IF(COUNTER = LEFT.label + 1,1,SKIP)));
@@ -63,7 +63,7 @@ testY1 := PROJECT(test0, TRANSFORM(mnist_data_type_withid_y, SELF.label:=LEFT.la
 
 testX2 := NORMALIZE(testX1, 784, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, ((counter-1) div 28) + 1, ((counter-1) % 28) +1],
-                            SELF.value := ( (REAL) (>UNSIGNED1<) LEFT.image[counter])/127.5 -1));
+                            SELF.value := ( (REAL) LEFT.image[counter])/127.5 -1));
 
 testY2 := NORMALIZE(testY1, 10, TRANSFORM(Tensor.R4.TensData,
                             SELF.indexes := [LEFT.id, counter],
