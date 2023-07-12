@@ -576,7 +576,7 @@ EXPORT GNNI := MODULE
     RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
   END; // Fit
 
-  UNSIGNED4 OneNodeFit(
+EXPORT UNSIGNED4 OneNodeFit(
       UNSIGNED4 model,
       DATASET(t_Tensor) x,
       DATASET(t_Tensor) y,
@@ -585,12 +585,15 @@ EXPORT GNNI := MODULE
       REAL trainToLoss = 0,
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
-      UNSIGNED4 localBatchSize = 32) := FUNCTION     
+      UNSIGNED4 localBatchSize = 32) := FUNCTION
+        
         INTEGER effNodes_ := 1;   
         // OUTPUT(startTime);
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
-        initWts := GetWeights(model);
+        initWts0 := GetWeights(model);
+        initWts := Tensor.R4.Replicate(initWts0);
+        
         // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
         // for each input and output tensor.
         maxInputWi := MAX(x, wi);
@@ -611,17 +614,19 @@ EXPORT GNNI := MODULE
             batchPos := (batchNum-1) * eBatchSize + 1;
             xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
             yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
-            wtChanges := wtChanges0;
-            newWts := wtChanges;
+            wtChanges := IF(
+              EXISTS(yBatch), 
+              Keras.FitBatch(
+                wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
+              DATASET([], t_Tensor));
             // Move all the changes for a given wi and slice to the same node.  Each
             // node has a set of wi/sliceIds to roll up.  Note that the original
             // weights are already replicated to all nodes.
-            
-            
             // wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
-            // Sum up the original weights (de-replicated) and all changes for each wi and slice
             //newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
+            
+            // Sum up the original weights (de-replicated) and all changes for each wi and slice
+            newWts := rollUpdates(wts2, wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
             batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
@@ -655,86 +660,69 @@ EXPORT GNNI := MODULE
                       REAL batchSizeReduction = 1.0,
                       UNSIGNED4 localBatchSize = 32,
                       INTEGER limitNodes=0) := FUNCTION
-    effNodes_ := getEffNodesNumber(limitNodes);
-
-    UNSIGNED4 partialFit(
-      UNSIGNED4 model,
-      DATASET(t_Tensor) x,
-      DATASET(t_Tensor) y,
-      UNSIGNED4 batchSize = 512,
-      UNSIGNED4 numEpochs = 1,
-      REAL trainToLoss = 0,
-      REAL learningRateReduction = 1.0,
-      REAL batchSizeReduction = 1.0,
-      UNSIGNED4 localBatchSize = 32) := FUNCTION        
-        // OUTPUT(startTime);
-        kModelId := model DIV kerasIdFactor;
-        // Get the initial weights to use
-        initWts0 := GetWeights(model);
-        // We get the weights from the first node and then copy them to all nodes
-        // so that everybody starts with the same weights
-        initWts := Tensor.R4.Replicate(initWts0);
-        // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
-        // for each input and output tensor.
-        startTime := Date.CurrentSeconds(true);
-        maxInputWi := MAX(x, wi);
-        // Change the wi's for outputs (y) so that they are after the input wi's
-        y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
-        aligned := Tensor.R4.AlignTensors(x + y1);
-        // Now change the Y's wi back to the original numbers
-        xAl := aligned(wi <= maxInputWi);
-        yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
-        totalRecords := Tensor.R4.GetRecordCount(yAl);
-        DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
-          // Calculate the Learning Rate for this Epoch (eLR)
-          eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
-          eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-          batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
-          DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
-            // Train the model and Get the weight changes from each node
-            batchPos := (batchNum-1) * eBatchSize + 1;
-            xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
-            yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
-            // Move all the changes for a given wi and slice to the same node.  Each
-            // node has a set of wi/sliceIds to roll up.  Note that the original
-            // weights are already replicated to all nodes.
-            wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
-            // Sum up the original weights (de-replicated) and all changes for each wi and slice
-            newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
-            // Note: newWts have been replicated to all nodes by rollUpdates.
-            batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
-            logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                    kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
-            RETURN newWts;
-          END;
-          // end_time
-          epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-          epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-          endTime := STD.Date.CurrentTime(True);
-          timeTakenForEpoch := abs(endtime-startTime);
-          logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Duration: '+timeTakenForEpoch +' Training Status: ModelId = ' +
-                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
-                          ', nNode = ' + effNodes_);
-          // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
-          // 999999 to indicate that we are done.
-          markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
-          epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
-          RETURN WHEN(epochWts, logProgress);
+      effNodes_ := getEffNodesNumber(limitNodes);
+  
+      // OUTPUT(startTime);
+      kModelId := model DIV kerasIdFactor;
+      // Get the initial weights to use
+      initWts0 := GetWeights(model);
+      // We get the weights from the first node and then copy them to all nodes
+      // so that everybody starts with the same weights
+      initWts := Tensor.R4.Replicate(initWts0);
+      // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
+      // for each input and output tensor.
+      startTime := Date.CurrentSeconds(true);
+      maxInputWi := MAX(x, wi);
+      // Change the wi's for outputs (y) so that they are after the input wi's
+      y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
+      aligned := Tensor.R4.AlignTensors(x + y1);
+      // Now change the Y's wi back to the original numbers
+      xAl := aligned(wi <= maxInputWi);
+      yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
+      totalRecords := Tensor.R4.GetRecordCount(yAl);
+      DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
+        // Calculate the Learning Rate for this Epoch (eLR)
+        eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
+        eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
+        batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
+        DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
+          // Train the model and Get the weight changes from each node
+          batchPos := (batchNum-1) * eBatchSize + 1;
+          xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
+          yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
+          wtChanges0 := IF(
+            EXISTS(yBatch), Keras.FitBatch(
+            wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
+            DATASET([], t_Tensor));
+          // Move all the changes for a given wi and slice to the same node.  Each
+          // node has a set of wi/sliceIds to roll up.  Note that the original
+          // weights are already replicated to all nodes.
+          wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
+          // Sum up the original weights (de-replicated) and all changes for each wi and slice
+          newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
+          // Note: newWts have been replicated to all nodes by rollUpdates.
+          batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
+          logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
+                  kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
+          RETURN newWts;
         END;
-        finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-        
-        RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
-        END;
-    RETURN OneNodeFit(
-        model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize);
-    // RETURN IF(effnodes_=1, SingleNodeFit(
-        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
-        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
-    // RETURN IF(effNodes_<nNodes, partialFit(
-        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), partialFit(
-        // model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize));
-
+        // end_time
+        epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
+        epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
+        endTime := STD.Date.CurrentTime(True);
+        timeTakenForEpoch := abs(endtime-startTime);
+        logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Duration: '+timeTakenForEpoch +' Training Status: ModelId = ' +
+                        kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
+                        ', nNode = ' + effNodes_);
+        // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
+        // 999999 to indicate that we are done.
+        markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
+        epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
+        RETURN WHEN(epochWts, logProgress);
+      END;
+      finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
+      
+      RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
   END; // nNodeFit
   /**
     * Determine the loss and other metrics in order to evaluate

@@ -20,7 +20,7 @@
   * / decoding utilities.
   */
 IMPORT STD;
-#OPTION('outputlimitMb',1848)
+//#OPTION('outputlimitMb',100)
 //STD.File.LogicalFileList('*', 1, 1, FALSE); 
 IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
@@ -38,10 +38,10 @@ nNodes := Thorlib.nodes();
 NumericField := mlc.Types.NumericField;
 
 effNodes := 1;
-// Prepare training data
+// Prepare trining data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
-trainCount := 10000000;
+trainCount := 1000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
@@ -186,7 +186,7 @@ compileDef := '''compile(optimizer=tf.keras.optimizers.SGD(.05),
 
 // Note that the order of the GNNI functions is maintained by passing tokens returned from one call
 // into the next call that is dependent on it.
-// For example, s is returned from GetSession().  It is used as the input to DefineModels(...) so
+// For example, s is returned from GetSession().  It is used as the iÍnput to DefineModels(...) so
 // that DefineModels() cannot execute until GetSession() has completed.
 // Likewise, mod, the output from GetSession() is provided as input to Fit().  Fit in turn returns
 // a token that is used by GetLoss(), EvaluateMod(), and Predict(), which are only dependent on Fit()
@@ -206,18 +206,25 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Fit trains the models, given training X and Y data.  BatchSize is not the Keras batchSize,
 // but defines how many records are processed on each node before synchronizing the weights
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
+
+
 //mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+// OUTPUT(mod2, NAMED('mod2'));
+// mod4 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
+// OUTPUT(mod4, NAMED('mod4'));
 
-mod2 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
 
-OUTPUT(mod2, NAMED('mod2'));
+mod3 := GNNI.OneNodeFit(
+  mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+
+OUTPUT(mod3, NAMED('mod3'));
 
 // GetLoss returns the average loss for the final training epoch
-losses := GNNI.GetLoss(mod2);
+losses := GNNI.GetLoss(mod3);
 
 // EvaluateNF computes the loss, as well as any other metrics that were defined in the Keras
 // compile line.  This is the NumericField form of EvaluateMod.
-metrics := GNNI.EvaluateNF(mod2, testX, testY);
+metrics := GNNI.EvaluateNF(mod3, testX, testY);
 
 OUTPUT(metrics, NAMED('metrics'));
 
@@ -227,7 +234,7 @@ OUTPUT(metrics, NAMED('metrics'));
 // final NN layer).  If we had used Tensors rather than NumericField, we
 // could convert to a class label by using Utils.FromOneHot, or
 // Utils.Probabilities2Class.
-preds := GNNI.PredictNF(mod2, testX);
+preds := GNNI.PredictNF(mod3, testX);
 
 OUTPUT(testY, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
