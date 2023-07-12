@@ -603,6 +603,7 @@ EXPORT Keras := MODULE
       # Restore Keras / TF context
       mod = modcache[modelid]
       # Convert the incoming weights to a list of numpy arrays
+      
       wA = Tens2NpList(weights)
       # Convert the X tensor to a numpy array
       xAL = Tens2NpList(x, recordOriented = True)
@@ -630,7 +631,8 @@ EXPORT Keras := MODULE
         with tfSession.as_default():
           with tfSession.graph.as_default():
             # Set the starting weights
-            mod.set_weights(wA)
+            if wA:
+              mod.set_weights(wA)
             # Run one batch to fit the model
             tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
             # Update the cumulative (epoch) loss
@@ -644,14 +646,15 @@ EXPORT Keras := MODULE
         #if numNodes == 1:
         #  return NpList2Tens(wA_out, isWeights = True)
         #else:
-        for i in range(len(wA)):
-          wA_changes.append((wA_out[i] - wA[i]) * lr)
+        if wA:
+          for i in range(len(wA)):
+            wA_changes.append((wA_out[i] - wA[i]) * lr)
       else:
         # No valid X / Y data received. Send null changes
         for i in range(len(wA)):
           wA_changes.append(np.zeros_like(wA[i]))
       # Return the weight changes as a Tensor List.
-      return NpList2Tens(wA_changes, isWeights = True)
+      return NpList2Tens(wA_changes, isWeights = True) if wA else NpList2Tens(wA_out, isWeights = True) 
     except:
       # Error occurred, but no string returned.  So we do an assert to convey the error.
       assert 1 == 0, format_exc('FitBatch: Exception')

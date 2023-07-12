@@ -581,7 +581,7 @@ EXPORT UNSIGNED4 OneNodeFit(
       DATASET(t_Tensor) x,
       DATASET(t_Tensor) y,
       UNSIGNED4 batchSize = 512,
-      UNSIGNED4 numEpochs = 1,
+      UNSIGNED4 numEpochs = 10,
       REAL trainToLoss = 0,
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
@@ -608,16 +608,16 @@ EXPORT UNSIGNED4 OneNodeFit(
           // Calculate the Learning Rate for this Epoch (eLR)
           eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
           eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-          batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
+          batchesPerEpoch := ROUNDUP(totalRecords / eBatchSize);
           DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
             // Train the model and Get the weight changes from each node
             batchPos := (batchNum-1) * eBatchSize + 1;
             xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
             yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            wtChanges := IF(
+            newWts := IF(
               EXISTS(yBatch), 
               Keras.FitBatch(
-                wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
+                DATASET([], T_TENSOR), xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
               DATASET([], t_Tensor));
             // Move all the changes for a given wi and slice to the same node.  Each
             // node has a set of wi/sliceIds to roll up.  Note that the original
@@ -626,7 +626,7 @@ EXPORT UNSIGNED4 OneNodeFit(
             //newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
             
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
-            newWts := rollUpdates(wts2, wtChanges);
+            //newWts := rollUpdates(wts2, wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
             batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
