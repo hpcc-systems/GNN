@@ -646,15 +646,18 @@ EXPORT Keras := MODULE
         #if numNodes == 1:
         #  return NpList2Tens(wA_out, isWeights = True)
         #else:
-        if wA:
-          for i in range(len(wA)):
-            wA_changes.append((wA_out[i] - wA[i]) * lr)
+    
+        if not wA:
+          return []
+        for i in range(len(wA)):
+          wA_changes.append((wA_out[i] - wA[i]) * lr)
+
       else:
         # No valid X / Y data received. Send null changes
         for i in range(len(wA)):
           wA_changes.append(np.zeros_like(wA[i]))
       # Return the weight changes as a Tensor List.
-      return NpList2Tens(wA_changes, isWeights = True) if wA else NpList2Tens(wA_out, isWeights = True) 
+      return NpList2Tens(wA_changes, isWeights = True)
     except:
       # Error occurred, but no string returned.  So we do an assert to convey the error.
       assert 1 == 0, format_exc('FitBatch: Exception')
@@ -667,8 +670,12 @@ EXPORT Keras := MODULE
         EMBED(Python: globalscope(globalScope), persist('query'), activity)
     global batchCount, cumLoss
     try:
-      assert batchCount[modelid] > 0, 'Keras.GetLoss: batchCount = 0' + ', currEpoch = ' + str(currEpoch[modelid])
-      loss = cumLoss[modelid] / batchCount[modelid]
+      # assert batchCount[modelid] > 0, 'Keras.GetLoss: batchCount = 0' + ', currEpoch = ' + str(currEpoch[modelid])
+      batchCnt = batchCount.get(modelid, 0)
+      if batchCnt>0:        
+        loss = cumLoss[modelid] / batchCnt
+      else:
+        loss = 0.0
     except:
       assert False, format_exc('GetLoss -- modelId = ' + str(modelid) + ', batchCount = ' + str(batchCount))
       return [(0.0,)]

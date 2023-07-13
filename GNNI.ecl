@@ -419,14 +419,28 @@ EXPORT GNNI := MODULE
     * @return The average loss.
     */
   EXPORT REAL GetLoss(UNSIGNED4 model) := FUNCTION
+    // numNodes = 0 means all nodes
     kModelId := model DIV kerasIdFactor;
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
     trainLosses := Keras.GetLoss(dummy, model, kModelId);
     // Each node provides the average loss across samples in the epoch.
     // We return the average of those averages.
+
     trainLoss := AVE(trainLosses, loss);
     RETURN trainLoss;
   END;
+  SHARED REAL GetLoss1(UNSIGNED4 model) := FUNCTION
+    // usecase: comment
+    kModelId := model DIV kerasIdFactor;
+    dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
+    trainLosses := Keras.GetLoss(dummy, model, kModelId);
+    // Each node provides the average loss across samples in the epoch.
+    // We return the average of those averages.
+
+    trainLoss := MAX(trainLosses, loss);
+    RETURN trainLoss;
+  END;
+  
   /**
     *  Take in a set of weight slices to be updated on this node plus a set of updates (deltas)
     *  to apply to those weights (multiple slices).
@@ -628,14 +642,14 @@ EXPORT UNSIGNED4 OneNodeFit(
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
             //newWts := rollUpdates(wts2, wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
-            batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
+            batchLoss := GetLoss1(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
-            RETURN newWts;
+            RETURN wts2+newWts;
           END;
           // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-          epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
+          epochLoss := GetLoss1(model + (batchesPerEpoch * (epochNum-1)));
           logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') +' Training Status: ModelId = ' +
                           kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
                           ', nNode = ' + effNodes_);
@@ -645,9 +659,13 @@ EXPORT UNSIGNED4 OneNodeFit(
           epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
           RETURN WHEN(epochWts, logProgress);
         END;
-        finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-
-  RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
+        finalWts0 := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
+        // finalwts should be evaluated
+        finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
+        //finalWts := Tensor.R4.Replicate(finalWts1);
+        newmodel := setweights(model, finalWts);
+        
+  RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
   END;
 
   EXPORT UNSIGNED4 nNodeFit(UNSIGNED4 model,
@@ -724,6 +742,7 @@ EXPORT UNSIGNED4 OneNodeFit(
       
       RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
   END; // nNodeFit
+
   /**
     * Determine the loss and other metrics in order to evaluate
     * the model.

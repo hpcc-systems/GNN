@@ -45,7 +45,7 @@ trainCount := 1000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
-numEpochs := 5;
+numEpochs := 15;
 batchSize := 128;
 // End of Test Parameters
 
@@ -210,8 +210,8 @@ OUTPUT(wts, NAMED('InitWeights'));
 
 //mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 // OUTPUT(mod2, NAMED('mod2'));
-// mod4 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
-// OUTPUT(mod4, NAMED('mod4'));
+// mod3 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
+// OUTPUT(mod3, NAMED('mod3'));
 
 
 mod3 := GNNI.OneNodeFit(
