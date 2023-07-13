@@ -7,8 +7,8 @@ IMPORT GNN.Internal as int;
 IMPORT GNN.Types;
 IMPORT GNN.Internal.Types AS iTypes;
 IMPORT GNN.Internal.Keras;
-IMPORT STD; 
 IMPORT GNN.Tensor;
+IMPORT GNN.Utils;
 IMPORT Std.System.Thorlib;
 IMPORT STD.Date as Date; 
 IMPORT Std.System.Log AS Syslog;
@@ -143,18 +143,6 @@ EXPORT GNNI := MODULE
     * we prevent the compiler from pre-determining the result, potentially
     * breaking the dependency chain.
     */
-
-  SHARED INTEGER getEffNodesNumber(nodeNumber) := FUNCTION
-    /*
-    nodeNumber: default value = 0 (meaning distribute to all nodes)
-                if totalAvailableNode<nodeNumber<=0 then fallback to totalAvailableNodes,
-    */
-    totalAvailableNodes := Thorlib.nodes();
-    eNodeNumber := IF(nodeNumber>0, nodeNumber, totalAvailableNodes);
-    // clipping eNodeNumber to totalAvailableNodes
-    return IF(eNodeNumber<totalAvailableNodes, eNodeNumber, totalAvailableNodes);
-  END;
-
   SHARED UNSIGNED4 getToken(UNSIGNED4 lastToken) := EMBED(Python)
     return lastToken + 1
   ENDEMBED;
@@ -166,7 +154,7 @@ EXPORT GNNI := MODULE
     */
   SHARED STRING reduceResults(DATASET(kString) results, INTEGER limitNodes=0) := FUNCTION
     rr0 :=  results(LENGTH(text) > 0);
-    effNodes := getEffNodesNumber(limitNodes);
+    effNodes := Utils.getEffNodesNumber(limitNodes);
     rr1 := rr0[1].text;
     rr := IF(COUNT(results) != effNodes,
             '''Didn\'t recieve reply from all nodes: (''' + effNodes +''' nodes) '''+ COUNT(results), rr1);
@@ -209,7 +197,6 @@ EXPORT GNNI := MODULE
     *         model.add().  Each string defines one layer of the model.
     * @param cdef (optional) A python string as would be passed to Keras model.compile(...).
     *         This line should begin with "compile".  Model is implicit here.
-    * @param nodes (optional) nodes number to run the program
     * @return A model token to be used in subsequent GNNI calls.
     */
   EXPORT UNSIGNED4 DefineModel(UNSIGNED4 sess, SET OF STRING ldef, STRING cdef = '') := FUNCTION
@@ -419,7 +406,6 @@ EXPORT GNNI := MODULE
     * @return The average loss.
     */
   EXPORT REAL GetLoss(UNSIGNED4 model) := FUNCTION
-    // numNodes = 0 means all nodes
     kModelId := model DIV kerasIdFactor;
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
     trainLosses := Keras.GetLoss(dummy, model, kModelId);
@@ -429,14 +415,13 @@ EXPORT GNNI := MODULE
     trainLoss := AVE(trainLosses, loss);
     RETURN trainLoss;
   END;
-  SHARED REAL GetLoss1(UNSIGNED4 model) := FUNCTION
-    // usecase: comment
+  /**
+    * Get loss when using single node configuration. We use `MAX` instead of `AVG` for single node configuration
+    */
+  SHARED REAL GetLoss4SingleNode(UNSIGNED4 model) := FUNCTION
     kModelId := model DIV kerasIdFactor;
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
     trainLosses := Keras.GetLoss(dummy, model, kModelId);
-    // Each node provides the average loss across samples in the epoch.
-    // We return the average of those averages.
-
     trainLoss := MAX(trainLosses, loss);
     RETURN trainLoss;
   END;
@@ -462,7 +447,7 @@ EXPORT GNNI := MODULE
       SELF := l;
     END;
     outWeights0 := ROLLUP(combined, doRollup(LEFT, RIGHT), wi, sliceId, LOCAL);
-    outWeights := Tensor.R4.Replicate(outWeights0); // TODO: pass: limitNodes to limit 
+    outWeights := Tensor.R4.Replicate(outWeights0); 
     RETURN outWeights;
   END;
   /**
@@ -586,7 +571,6 @@ EXPORT GNNI := MODULE
     END;
     finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
 
-    // *** TODO: setweight should set weight to all nodes; not just training nodes; in the final step only
     RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
   END; // Fit
 
@@ -600,9 +584,8 @@ EXPORT UNSIGNED4 OneNodeFit(
       REAL learningRateReduction = 1.0,
       REAL batchSizeReduction = 1.0,
       UNSIGNED4 localBatchSize = 32) := FUNCTION
-        
+        // to understand this, first go with Fit() function
         INTEGER effNodes_ := 1;   
-        // OUTPUT(startTime);
         kModelId := model DIV kerasIdFactor;
         // Get the initial weights to use
         initWts0 := GetWeights(model);
@@ -642,14 +625,14 @@ EXPORT UNSIGNED4 OneNodeFit(
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
             //newWts := rollUpdates(wts2, wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
-            batchLoss := GetLoss1(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
+            batchLoss := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
             RETURN wts2+newWts;
           END;
           // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-          epochLoss := GetLoss1(model + (batchesPerEpoch * (epochNum-1)));
+          epochLoss := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)));
           logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') +' Training Status: ModelId = ' +
                           kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
                           ', nNode = ' + effNodes_);
@@ -663,10 +646,10 @@ EXPORT UNSIGNED4 OneNodeFit(
         // finalwts should be evaluated
         finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
         //finalWts := Tensor.R4.Replicate(finalWts1);
-        newmodel := setweights(model, finalWts);
+        newmodel := SetWeights(model, finalWts);
         
-  RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
-  END;
+    RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
+    END; //OneNodeFit
 
   EXPORT UNSIGNED4 nNodeFit(UNSIGNED4 model,
                       DATASET(t_Tensor) x,
@@ -678,7 +661,7 @@ EXPORT UNSIGNED4 OneNodeFit(
                       REAL batchSizeReduction = 1.0,
                       UNSIGNED4 localBatchSize = 32,
                       INTEGER limitNodes=0) := FUNCTION
-      effNodes_ := getEffNodesNumber(limitNodes);
+      effNodes_ := Utils.getEffNodesNumber(limitNodes);
   
       // OUTPUT(startTime);
       kModelId := model DIV kerasIdFactor;
@@ -727,9 +710,7 @@ EXPORT UNSIGNED4 OneNodeFit(
         // end_time
         epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
         epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-        endTime := STD.Date.CurrentTime(True);
-        timeTakenForEpoch := abs(endtime-startTime);
-        logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') + ' Duration: '+timeTakenForEpoch +' Training Status: ModelId = ' +
+        logProgress := Syslog.addWorkunitInformation(' Training Status: ModelId = ' +
                         kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
                         ', nNode = ' + effNodes_);
         // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
@@ -739,8 +720,9 @@ EXPORT UNSIGNED4 OneNodeFit(
         RETURN WHEN(epochWts, logProgress);
       END;
       finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-      
-      RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
+      // at last: setweight to all nodes; not just training nodes
+      newmodel := SetWeights(model, finalWts);
+      RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
   END; // nNodeFit
 
   /**
@@ -833,7 +815,7 @@ EXPORT UNSIGNED4 OneNodeFit(
   /**
     * Convert a NumericField matrix dataset to Tensor format.
     */
-  SHARED DATASET(t_Tensor) NF2Tensor(DATASET(NumericField) nf, INTEGER limitNodes = 0) := FUNCTION
+  SHARED DATASET(t_Tensor) NF2Tensor(DATASET(NumericField) nf) := FUNCTION
     tensDat := PROJECT(nf, TRANSFORM(TensData,
                               SELF.indexes := [LEFT.id, LEFT.number],
                               SELF := LEFT), LOCAL);
@@ -906,21 +888,7 @@ EXPORT UNSIGNED4 OneNodeFit(
     RETURN Fit(model, xT, yT, batchSize, numEpochs, trainToLoss, learningRateReduction,
                 batchSizeReduction, localBatchSize);
   END;
-
-  EXPORT UNSIGNED4 nNodeFitNF(UNSIGNED4 model,
-                    DATASET(NumericField) x,
-                    DATASET(NumericField) y,
-                    UNSIGNED4 batchSize = 512,
-                    UNSIGNED4 numEpochs = 1,
-                    REAL trainToLoss = 0,
-                    REAL learningRateReduction = 1.0,
-                    REAL batchSizeReduction = 1.0,
-                    UNSIGNED4 localBatchSize = 32, INTEGER limitNodes=0) := FUNCTION
-    xT := NF2Tensor(x, limitNodes:=limitNodes);
-    yT := NF2Tensor(y, limitNodes:=limitNodes);
-    RETURN nNodeFit(model, xT, yT, batchSize, numEpochs, trainToLoss, learningRateReduction,
-                batchSizeReduction, localBatchSize, limitNodes);
-  END;
+  
   /**
     * Evaluate a model with 2 dimensional input and output using NumericField
     * matrices.

@@ -603,7 +603,6 @@ EXPORT Keras := MODULE
       # Restore Keras / TF context
       mod = modcache[modelid]
       # Convert the incoming weights to a list of numpy arrays
-      
       wA = Tens2NpList(weights)
       # Convert the X tensor to a numpy array
       xAL = Tens2NpList(x, recordOriented = True)
@@ -630,8 +629,7 @@ EXPORT Keras := MODULE
         tfSession = sesscache[modelid]
         with tfSession.as_default():
           with tfSession.graph.as_default():
-            # Set the starting weights
-            if wA:
+            if wA:  # Set the starting weights; with this condition, we skip setWeight for SingleNode use case
               mod.set_weights(wA)
             # Run one batch to fit the model
             tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
@@ -643,11 +641,8 @@ EXPORT Keras := MODULE
         # For each layer, subtract the new weights from the starting weights to compute
         # the weight updates.  Scale the changes by the learningRate (lr) so that we can
         # control the lr as a fraction of the learing rate used within the optimizer from compileMod.
-        #if numNodes == 1:
-        #  return NpList2Tens(wA_out, isWeights = True)
-        #else:
-    
-        if not wA:
+        
+        if not wA: # for SingleNode use case
           return []
         for i in range(len(wA)):
           wA_changes.append((wA_out[i] - wA[i]) * lr)
@@ -674,7 +669,7 @@ EXPORT Keras := MODULE
       batchCnt = batchCount.get(modelid, 0)
       if batchCnt>0:        
         loss = cumLoss[modelid] / batchCnt
-      else:
+      else:  # Single Node use case
         loss = 0.0
     except:
       assert False, format_exc('GetLoss -- modelId = ' + str(modelid) + ', batchCount = ' + str(batchCount))

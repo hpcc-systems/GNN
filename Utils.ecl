@@ -1,11 +1,25 @@
 IMPORT $ AS GNN;
 IMPORT GNN.Tensor;
+IMPORT Std.System.Thorlib;
 
 TensDat := Tensor.R4.TensData;
 /**
   * Utility module for GNN.  Contains various utility functions for use with GNN.
   */
 EXPORT Utils := MODULE
+  /** 
+    * Method to setup effective node number as per available nodes
+    */
+  EXPORT INTEGER getEffNodesNumber(nodeNumber) := FUNCTION
+    /*
+    nodeNumber: default value = 0 (meaning distribute to all nodes)
+                if totalAvailableNode<nodeNumber<=0 then fallback to totalAvailableNodes,
+    */
+    totalAvailableNodes := Thorlib.nodes();
+    eNodeNumber := IF(nodeNumber>0, nodeNumber, totalAvailableNodes);
+    // clipping eNodeNumber to totalAvailableNodes
+    return IF(eNodeNumber<totalAvailableNodes, eNodeNumber, totalAvailableNodes);
+  END;
   /**
     * Convert Tensor Data to OneHot Encoding.
     * <p>Input is a 1-D tensor data set with the value of each
@@ -25,6 +39,7 @@ EXPORT Utils := MODULE
     * @return A 2-D set of TensData one hot encoded.
     * @see Tensor.R4.TensData
     */
+  
   EXPORT DATASET(TensDat) ToOneHot(DATASET(TensDat) classDat, UNSIGNED numClasses) := FUNCTION
     oh := NORMALIZE(classDat, numClasses, TRANSFORM(TensDat,
                                         SELF.indexes := [LEFT.indexes[1], COUNTER],

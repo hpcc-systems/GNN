@@ -2,7 +2,7 @@ IMPORT PYTHON3 as PYTHON;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
 IMPORT Std.System.Thorlib;
-
+IMPORT GNN.Utils;
 nodeId := Thorlib.node();
 nNodes := Thorlib.nodes();
 
@@ -23,16 +23,6 @@ MAX_SLICE := POWER(2, 24);
   */
 EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
                                     UNSIGNED datcount, INTEGER limitNodes=0) := FUNCTION
-  INTEGER getEffNodesNumber(nodeNumber) := FUNCTION
-    /*
-    nodeNumber: default value = 0 (meaning distribute to all nodes)
-                if totalAvailableNode<nodeNumber<=0 then fallback to totalAvailableNodes,
-    */
-    totalAvailableNodes := Thorlib.nodes();
-    eNodeNumber := IF(nodeNumber>0, nodeNumber, totalAvailableNodes);
-    // clipping eNodeNumber to totalAvailableNodes
-    return IF(eNodeNumber<totalAvailableNodes, eNodeNumber, totalAvailableNodes);
-  END;
 
   // Python embed function to do most of the heavy lifting.
   STREAMED DATASET(t_Tensor) extract(STREAMED DATASET(t_Tensor) tens,
@@ -193,7 +183,7 @@ EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
   ENDEMBED; // Extract
 
   // here
-  effNodes := getEffNodesNumber(limitNodes);
+  effNodes := Utils.getEffNodesNumber(limitNodes);
   // for range(reminderNodes): Nodes[id] = baseNodePerEffNode+1
 
   // definition: extract(STREAMED DATASET(t_Tensor) tens, UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice
