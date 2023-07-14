@@ -28,6 +28,7 @@ IMPORT GNN.Tensor;
 IMPORT GNN.Internal.Types AS iTypes;
 IMPORT GNN.Types;
 IMPORT GNN.GNNI;
+IMPORT STD.Date;
 IMPORT GNN.Internal AS Int;
 IMPORT ML_Core AS mlc;
 IMPORT Std.System.Thorlib;
@@ -41,7 +42,7 @@ effNodes := 1;
 // Prepare trining data
 RAND_MAX := POWER(2,32) -1;
 // Test parameters
-trainCount := 1000;
+trainCount := 100000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
@@ -213,12 +214,19 @@ OUTPUT(wts, NAMED('InitWeights'));
 // mod3 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
 // OUTPUT(mod3, NAMED('mod3'));
 
+startTime := Date.CurrentSeconds(true);
 
 mod3 := GNNI.OneNodeFit(
   mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+endTime := Date.CurrentSeconds(true);
+// OUTPUT(mod3, NAMED('mod3'));
 
-OUTPUT(mod3, NAMED('mod3'));
-
+SEQUENTIAL(
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),
+  OUTPUT(mod3, NAMED('mod3')),
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken'))
+);
 // GetLoss returns the average loss for the final training epoch
 losses := GNNI.GetLoss(mod3);
 
