@@ -719,8 +719,10 @@ EXPORT UNSIGNED4 OneNodeFit(
         epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
         RETURN WHEN(epochWts, logProgress);
       END;
-      finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
+      finalWts0 := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
       // at last: setweight to all nodes; not just training nodes
+      finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
+        
       newmodel := SetWeights(model, finalWts);
       RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
   END; // nNodeFit

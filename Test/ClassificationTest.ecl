@@ -218,6 +218,13 @@ startTime := Date.CurrentSeconds(true);
 
 mod3 := GNNI.OneNodeFit(
   mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+
+/*
+mod3 := GNNI.nNodeFit(
+  mod, trainX, trainY, batchSize := batchSize, 
+  numEpochs := numEpochs, 
+  limitNodes:=3);
+*/
 endTime := Date.CurrentSeconds(true);
 // OUTPUT(mod3, NAMED('mod3'));
 
