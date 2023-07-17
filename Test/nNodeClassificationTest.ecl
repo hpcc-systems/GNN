@@ -155,16 +155,6 @@ yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes);
 //OUTPUT(trainX, NAMED('X'));
 //OUTPUT(trainY, NAMED('y'));
 
-testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField, // 5
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.x[COUNTER]));
-testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,  // 3
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.y[COUNTER]));
 
 //OUTPUT(count(trainY[1].densedata), Named('TestY1_Count'));
 //OUTPUT(count(trainY[2].densedata), Named('TestY2_Count'));
@@ -210,33 +200,42 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
 
 
-//mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
-// OUTPUT(mod2, NAMED('mod2'));
-// mod3 := GNNI.nNodeFit(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs, limitNodes := effNodes);
-// OUTPUT(mod3, NAMED('mod3'));
-
-startTime := Date.CurrentSeconds(true);
-
+startTime := Date.CurrentSeconds(true);//: PERSIST('startTime');
+/*
 mod3 := GNNI.OneNodeFit(
   mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
-/*
+*/
 mod3 := GNNI.nNodeFit(
   mod, trainX, trainY, batchSize := batchSize, 
   numEpochs := numEpochs, 
   limitNodes:=3);
-*/
-endTime := Date.CurrentSeconds(true);
+
+endTime := Date.CurrentSeconds(true);//: PERSIST('endTime');
 // OUTPUT(mod3, NAMED('mod3'));
 
 SEQUENTIAL(
-  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_n3')),
   OUTPUT(mod3, NAMED('mod3')),
-  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime')),
-  OUTPUT(endtime-starttime, NAMED('TimeTaken'))
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_n3')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken_n3'))
 );
+
+/*
 // GetLoss returns the average loss for the final training epoch
 losses := GNNI.GetLoss(mod3);
+
+
+testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField, // 5
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.x[COUNTER]));
+testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,  // 3
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.y[COUNTER]));
 
 // EvaluateNF computes the loss, as well as any other metrics that were defined in the Keras
 // compile line.  This is the NumericField form of EvaluateMod.
@@ -254,3 +253,5 @@ preds := GNNI.PredictNF(mod3, testX);
 
 OUTPUT(testY, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
+
+*/

@@ -1,6 +1,7 @@
 IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.GNNI;
+IMPORT STD.Date;
 IMPORT GNN.Tensor;
 IMPORT GNN.Internal AS int;
 IMPORT GNN.Internal.Types AS iTypes;
@@ -9,7 +10,7 @@ IMPORT Std.System.Thorlib;
 // hyperparam
 batchSize := 128;
 numEpochs := 5;
-effNodes := 0;
+effNodes := 1;
 
 mnist_data_type := RECORD
 	 INTEGER1 label;
@@ -87,8 +88,39 @@ wts := GNNI.GetWeights(mod);
 OUTPUT(wts, NAMED('InitWeights'));
 
 
-mod2 := GNNI.Fit(mod, trainX3, trainY3, batchSize := batchSize, numEpochs := numEpochs);
-OUTPUT(mod2, NAMED('mod2'));
+// mod2 := GNNI.Fit(
+//     mod, 
+//     trainX3, 
+//     trainY3, 
+//     batchSize := batchSize, 
+//     numEpochs := numEpochs);
+// OUTPUT(mod2, NAMED('mod2'));
+
+startTime := Date.CurrentSeconds(true);
+
+mod2 := GNNI.OneNodeFit(
+    mod, trainX3, trainY3, 
+    batchSize := batchSize, 
+    numEpochs := numEpochs
+    );
+
+
+// mod2 := GNNI.nNodeFit(
+//     mod, trainX3, trainY3, 
+//     batchSize := batchSize, 
+//     numEpochs := numEpochs,
+//     limitNodes := 0
+//     );
+
+endTime := Date.CurrentSeconds(true);
+// OUTPUT(mod3, NAMED('mod3'));
+
+SEQUENTIAL(
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_noN')),
+  OUTPUT(mod2, NAMED('mod2')),
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_noN')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken'))
+);
 
 losses := GNNI.GetLoss(mod2);
 output(losses, NAMED('LOSSES'));
