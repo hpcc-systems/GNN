@@ -34,6 +34,8 @@ IMPORT GNN.Internal AS Int;
 IMPORT ML_Core AS mlc;
 IMPORT Std.System.Thorlib;
 
+#OPTION('multiplePersistInstances', true);
+
 nodeId := Thorlib.node();
 nNodes := Thorlib.nodes();
 
@@ -47,7 +49,7 @@ trainCount := 100000;
 testCount := 100;
 featureCount := 5;
 classCount := 3;
-numEpochs := 15;
+numEpochs := 5;
 batchSize := 128;
 // End of Test Parameters
 
@@ -200,25 +202,26 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
 
 
-startTime := Date.CurrentSeconds(true);//: PERSIST('startTime');
-/*
-mod3 := GNNI.OneNodeFit(
-  mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');//: PERSIST('startTime', REFRESH(True));
 
-*/
+// mod3 := GNNI.OneNodeFit(
+//   mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+
+#WORKUNIT('name', 'checkpoint_test2');
 mod3 := GNNI.nNodeFit(
   mod, trainX, trainY, batchSize := batchSize, 
   numEpochs := numEpochs, 
-  limitNodes:=3);
+  limitNodes:=2);
 
-endTime := Date.CurrentSeconds(true);//: PERSIST('endTime');
+endTime := Date.CurrentSeconds(true);//: PERSIST('endTime', refresh(True));
 // OUTPUT(mod3, NAMED('mod3'));
 
 SEQUENTIAL(
-  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_n3')),
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_no')),
   OUTPUT(mod3, NAMED('mod3')),
-  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_n3')),
-  OUTPUT(endtime-starttime, NAMED('TimeTaken_n3'))
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_no')),
+   OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime23_no')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken_no'))
 );
 
 /*
