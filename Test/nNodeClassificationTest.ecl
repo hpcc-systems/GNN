@@ -204,24 +204,23 @@ OUTPUT(wts, NAMED('InitWeights'));
 
 startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');//: PERSIST('startTime', REFRESH(True));
 
-// mod3 := GNNI.OneNodeFit(
-//   mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
+mod3 := GNNI.OneNodeFit(
+  mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
-#WORKUNIT('name', 'checkpoint_test2');
-mod3 := GNNI.nNodeFit(
-  mod, trainX, trainY, batchSize := batchSize, 
-  numEpochs := numEpochs, 
-  limitNodes:=2);
+#WORKUNIT('name', 'single_node');
+// mod3 := GNNI.nNodeFit(
+//   mod, trainX, trainY, batchSize := batchSize, 
+//   numEpochs := numEpochs, 
+//   limitNodes:=1);
 
 endTime := Date.CurrentSeconds(true);//: PERSIST('endTime', refresh(True));
 // OUTPUT(mod3, NAMED('mod3'));
 
 SEQUENTIAL(
-  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_no')),
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),
   OUTPUT(mod3, NAMED('mod3')),
-  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_no')),
-   OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime23_no')),
-  OUTPUT(endtime-starttime, NAMED('TimeTaken_no'))
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken'))
 );
 
 /*

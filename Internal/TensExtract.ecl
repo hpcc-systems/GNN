@@ -188,7 +188,7 @@ EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
 
   // definition: extract(STREAMED DATASET(t_Tensor) tens, UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice
   extractedData0 := extract(tens, pos-1, datcount, nodeId, nNodes, MAX_SLICE);
-  extractedDataD := DISTRIBUTE(extractedData0, nodeId DIV effNodes); // ROUNDUP(Thorlib.nodes() / effNodes)
+  extractedDataD := DISTRIBUTE(extractedData0, nodeId % effNodes); // ROUNDUP(Thorlib.nodes() / effNodes)
 
   extractDataD1 := Project(NOCOMBINE(extractedDataD), TRANSFORM(RECORDOF(LEFT), SELF.nodeId:=nodeId, SELF:=LEFT));
   extractedData := IF(limitNodes=0, extractedData0, extractDataD1);

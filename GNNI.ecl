@@ -611,7 +611,7 @@ EXPORT UNSIGNED4 OneNodeFit(
             batchPos := (batchNum-1) * eBatchSize + 1;
             xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
             yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            newWts := IF(
+            newWts := IFF(
               EXISTS(yBatch), 
               Keras.FitBatch(
                 DATASET([], T_TENSOR), xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
