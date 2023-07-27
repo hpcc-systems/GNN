@@ -137,7 +137,7 @@ FuncLayerDef := GNN.Types.FuncLayerDef;
   *      too large.</li></ul>
   *
   */
-EXPORT GNNI := MODULE
+EXPORT MultiModelGNNI := MODULE
   /**
     * Generate a sequential token.  By making this a python function,
     * we prevent the compiler from pre-determining the result, potentially
@@ -611,10 +611,10 @@ EXPORT UNSIGNED4 OneNodeFit(
             batchPos := (batchNum-1) * eBatchSize + 1;
             xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
             yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            newWeights := IF(
+            newWts := IFF(
               EXISTS(yBatch), 
               Keras.FitBatch(
-                DATASET([], t_Tensor), xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
+                DATASET([], T_TENSOR), xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
               DATASET([], t_Tensor));
             // Move all the changes for a given wi and slice to the same node.  Each
             // node has a set of wi/sliceIds to roll up.  Note that the original
@@ -628,7 +628,7 @@ EXPORT UNSIGNED4 OneNodeFit(
             batchLoss := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
-            RETURN wts2+newWeights;
+            RETURN wts2+newWts;
           END;
           // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
@@ -685,7 +685,7 @@ EXPORT UNSIGNED4 OneNodeFit(
         // Calculate the Learning Rate for this Epoch (eLR)
         eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
         eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-        batchesPerEpoch := ROUNDUP(totalRecords / effNodes_ / eBatchSize);
+        batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
         DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
           // Train the model and Get the weight changes from each node
           batchPos := (batchNum-1) * eBatchSize + 1;

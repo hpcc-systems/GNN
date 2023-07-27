@@ -7,6 +7,9 @@ IMPORT GNN.Internal AS int;
 IMPORT GNN.Internal.Types AS iTypes;
 IMPORT Std.System.Thorlib;
 
+// blob data created using https://github.com/hpcc-systems/GPU-Deep-Learning/blob/master/Datasets/data_files/Dataset%20Preprocessing.ipynb
+// and imported with blob fix length (785) type
+
 // hyperparam
 batchSize := 128;
 numEpochs := 5;
@@ -96,32 +99,34 @@ OUTPUT(wts, NAMED('InitWeights'));
 //     numEpochs := numEpochs);
 // OUTPUT(mod2, NAMED('mod2'));
 
-startTime := Date.CurrentSeconds(true);
+startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');
 
-mod2 := GNNI.OneNodeFit(
-    mod, trainX3, trainY3, 
-    batchSize := batchSize, 
-    numEpochs := numEpochs
-    );
-
-
-// mod2 := GNNI.nNodeFit(
+// mod2 := GNNI.OneNodeFit(
 //     mod, trainX3, trainY3, 
 //     batchSize := batchSize, 
-//     numEpochs := numEpochs,
-//     limitNodes := 0
+//     numEpochs := numEpochs
 //     );
+
+
+#WORKUNIT('name', 'mnist_n__3');
+
+mod2 := GNNI.nNodeFit(
+    mod, trainX3, trainY3, 
+    batchSize := batchSize, 
+    numEpochs := numEpochs,
+    limitNodes := 3
+    );
 
 endTime := Date.CurrentSeconds(true);
 // OUTPUT(mod3, NAMED('mod3'));
 
 SEQUENTIAL(
-  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime_noN')),
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),
   OUTPUT(mod2, NAMED('mod2')),
-  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime_noN')),
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime')),
   OUTPUT(endtime-starttime, NAMED('TimeTaken'))
 );
-
+/*
 losses := GNNI.GetLoss(mod2);
 output(losses, NAMED('LOSSES'));
 metrics := GNNI.EvaluateMod(mod2, testX3, testY3);
@@ -130,7 +135,6 @@ preds := GNNI.Predict(mod2, testX3);
 OUTPUT(testY3, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
 
-/*
 // ldef := [
 // 	'''layers.Dense(256, activation='tanh', input_shape=(5,))''',
 // 	'''layers.Dense(256, activation='relu')''',

@@ -643,7 +643,7 @@ EXPORT Keras := MODULE
         # control the lr as a fraction of the learing rate used within the optimizer from compileMod.
         
         if not wA: # for SingleNode use case
-          return []
+          return NpList2Tens(wA, isWeights = True)
         for i in range(len(wA)):
           wA_changes.append((wA_out[i] - wA[i]) * lr)
 
