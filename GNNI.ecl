@@ -625,14 +625,16 @@ EXPORT UNSIGNED4 OneNodeFit(
             // Sum up the original weights (de-replicated) and all changes for each wi and slice
             //newWts := rollUpdates(wts2, wtChanges);
             // Note: newWts have been replicated to all nodes by rollUpdates.
-            batchLoss := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
+            batchLoss0 := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
+            batchLoss:= IF(COUNT(newWeights)>0, batchLoss0, 1.0);
             logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
                     kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
             RETURN wts2+newWeights;
           END;
           // end_time
           epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-          epochLoss := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)));
+          epochLoss0 := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)));
+          epochLoss := IF(COUNT(epochWts0)>0, epochLoss0, 1.0);
           logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') +' Training Status: ModelId = ' +
                           kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
                           ', nNode = ' + effNodes_);
