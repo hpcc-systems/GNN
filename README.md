@@ -11,7 +11,7 @@ using Keras.  This includes Classical (Dense) Neural Networks as
 well as Convolutional and Recursive Networks (such as LSTM), or any combination
 of the above. 
 
-GNN currently supports both Tensorflow 1.x and Tensorflow 2.x versions. It also supports the use of
+GNN currently supports Tensorflow 2.x versions. It also supports the use of
 GPUs in conjunction with Tensorflow, with certain
 restrictions in the supported topology.  Specifically:
 - All servers in a cluster must have the same GPU configuration

@@ -6,11 +6,9 @@ IMPORT $ AS GNN;
 IMPORT GNN.Internal as int;
 IMPORT GNN.Types;
 IMPORT GNN.Internal.Types AS iTypes;
-IMPORT GNN.Internal.Keras;
+IMPORT GNN.Internal.Keras_tf1;
 IMPORT GNN.Tensor;
-IMPORT GNN.Utils;
 IMPORT Std.System.Thorlib;
-IMPORT STD.Date as Date; 
 IMPORT Std.System.Log AS Syslog;
 IMPORT ML_Core.Types AS mlTypes;
 NumericField := mlTypes.NumericField;
@@ -137,12 +135,7 @@ FuncLayerDef := GNN.Types.FuncLayerDef;
   *      too large.</li></ul>
   *
   */
-EXPORT GNNI := MODULE
-
-  EXPORT GNN_Model := RECORD(t_Tensor)
-     STRING model_JSON := '';
-  END;
-  
+EXPORT GNNI_tf1 := MODULE
   /**
     * Generate a sequential token.  By making this a python function,
     * we prevent the compiler from pre-determining the result, potentially
@@ -157,12 +150,11 @@ EXPORT GNNI := MODULE
     * if there was at least 1 error, or if a reply was not received from
     * every node.  Otherwise returns blank string.
     */
-  SHARED STRING reduceResults(DATASET(kString) results, INTEGER limitNodes=0) := FUNCTION
+  SHARED STRING reduceResults(DATASET(kString) results) := FUNCTION
     rr0 :=  results(LENGTH(text) > 0);
-    effNodes := Utils.getEffNodesNumber(limitNodes);
     rr1 := rr0[1].text;
-    rr := IF(COUNT(results) != effNodes,
-            '''Didn\'t recieve reply from all nodes: (''' + effNodes +''' nodes) '''+ COUNT(results), rr1);
+    rr := IF(COUNT(results) != nNodes,
+            '''Didn't recieve reply from all nodes: ''' + COUNT(results), rr1);
     return rr;
   END;
 
@@ -183,11 +175,11 @@ EXPORT GNNI := MODULE
                                       SELF.nodeId := nodeId,
                                       SELF.nNodes := nNodes,
                                       SELF.maxSliceSize := Tensor.MAX_SLICE), LOCAL);
-    kstatus := ASSERT(Keras.Init(initDat, GPUsPerServer), LENGTH(text) = 0, 'GetSession Exception: ' + text, FAIL);
+    kstatus := ASSERT(Keras_tf1.Init(initDat, GPUsPerServer), LENGTH(text) = 0, 'GetSession Exception: ' + text, FAIL);
     status := reduceResults(kstatus);
     model := IF(LENGTH(status) = 0, getToken(0), 0);
     RETURN model;
-  END;
+ END;
   /**
     * Define a Keras / Tensorflow model using Keras sytax.  Optionally
     * also provide a "compile" line with the compilation parameters for the
@@ -212,7 +204,7 @@ EXPORT GNNI := MODULE
     mdef := IF(LENGTH(cdef) > 0, mdef1 + mdef2, mdef1);
     mdefRepl0 := SORT(DISTRIBUTE(mdef, ALL), id, LOCAL);
     mdefRepl := PROJECT(NOCOMBINE(mdefRepl0), TRANSFORM(RECORDOF(LEFT), SELF.nodeId := nodeId, SELF := LEFT), LOCAL);
-    kstatus := ASSERT(Keras.DefineModel(mdefRepl, sess), LENGTH(text) = 0, 'DefineModel Exception: ' + text);
+    kstatus := ASSERT(Keras_tf1.DefineModel(mdefRepl, sess), LENGTH(text) = 0, 'DefineModel Exception: ' + text);
     status := reduceResults(kstatus);
     // Extract the Keras modelId from the id field of the returned status.  Each node should have the
     // same model id since they are kept in sync.  So we just use the one from our own node.
@@ -256,7 +248,7 @@ EXPORT GNNI := MODULE
                                    STRING cdef = '') := FUNCTION
     // Distribute the lDefs to all nodes to make sure that the model is defined on each node
     lDefsRepl := DISTRIBUTE(lDefs, ALL);
-    kstatus := ASSERT(Keras.DefineFuncModel(lDefsRepl, sess, inputs, outputs, cdef), LENGTH(text) = 0, 'DefineFuncModel Exception: ' + text);
+    kstatus := ASSERT(Keras_tf1.DefineFuncModel(lDefsRepl, sess, inputs, outputs, cdef), LENGTH(text) = 0, 'DefineFuncModel Exception: ' + text);
     status := reduceResults(kstatus);
     // Extract the Keras modelId from the id field of the returned status.  Each node should have the
     // same model id since they are kept in sync.  So we just use the one from our own node.
@@ -276,15 +268,11 @@ EXPORT GNNI := MODULE
     *         from DefineModel(...) above.
     * @return A JSON string representing the model definition.
     */
-  SHARED STRING ToJSON_(UNSIGNED4 mod) := FUNCTION
+  EXPORT STRING ToJSON(UNSIGNED4 mod) := FUNCTION
     kModelId := mod DIV kerasIdFactor;
-    results := Keras.ToJSON(DATASET([], kString), mod, kModelId);
+    results := Keras_tf1.ToJSON(DATASET([], kString), mod, kModelId);
     result := results[1].text;
     RETURN result;
-  END;
-
-  EXPORT STRING ToJSON(UNSIGNED4 mod) := FUNCTION
-    RETURN ToJSON_(mod);
   END;
 
   /**
@@ -299,12 +287,12 @@ EXPORT GNNI := MODULE
     *         returned from ToJSON(...).
     * @return A model token to be used in subsequent GNNI calls.
     */
-  SHARED UNSIGNED4 FromJSON_(UNSIGNED4 sess, STRING json) := FUNCTION
+  EXPORT UNSIGNED4 FromJSON(UNSIGNED4 sess, STRING json) := FUNCTION
     mdefRepl := DATASET(1, TRANSFORM(kString,
                                     SELF.id :=1,
                                     SELF.typ := kStrType.json,
                                     SELF.text := json), LOCAL);
-    kstatus := ASSERT(Keras.FromJSON(mdefRepl, sess), LENGTH(text) = 0, 'FromJSON Exception: ' + text, FAIL);
+    kstatus := ASSERT(Keras_tf1.FromJSON(mdefRepl, sess), LENGTH(text) = 0, 'FromJSON Exception: ' + text, FAIL);
     status := reduceResults(kstatus);
     // Extract the Keras modelId from the id field of the returned status.  Each node should have the
     // same model id since they are kept in sync.  So we just use the one from our own node.
@@ -316,10 +304,6 @@ EXPORT GNNI := MODULE
     modelBase := modelId * kerasIdFactor;
     model := IF(LENGTH(status) = 0, getToken(sess + modelBase), 0);
     RETURN model;
-  END;
-
-  EXPORT UNSIGNED4 FromJSON(UNSIGNED4 sess, STRING json) := FUNCTION
-    RETURN FromJSON_(sess, json);
   END;
   /**
     * Compile a previously defined Keras model.
@@ -357,7 +341,7 @@ EXPORT GNNI := MODULE
                                     SELF.typ := kStrType.compile,
                                     SELF.text := compileStr), LOCAL);
     kModelId := model DIV kerasIdFactor;
-    kstatus := ASSERT(Keras.CompileMod(mdefRepl, model, kModelId), LENGTH(text) = 0, 'CompileMod Exception: ' + text, FAIL);
+    kstatus := ASSERT(Keras_tf1.CompileMod(mdefRepl, model, kModelId), LENGTH(text) = 0, 'CompileMod Exception: ' + text, FAIL);
     status := reduceResults(kstatus);
     RETURN getToken(model);
   END;
@@ -385,7 +369,7 @@ EXPORT GNNI := MODULE
     // synchronized between nodes.
     kModelId := model DIV kerasIdFactor;
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
-    weights := Keras.GetWeights(dummy, model, kModelId);
+    weights := Keras_tf1.GetWeights(dummy, model, kModelId);
     RETURN weights(nodeId=0);
   END;
 
@@ -407,7 +391,7 @@ EXPORT GNNI := MODULE
   EXPORT UNSIGNED4 SetWeights(UNSIGNED4 model, DATASET(t_Tensor) weights) := FUNCTION
     kModelId := model DIV kerasIdFactor;
     weightsD := Tensor.R4.replicate(weights);
-    kstatus := ASSERT(Keras.SetWeights(weightsD, model, kModelId), LENGTH(text) = 0, 'SetWeights Exception: ' + text, FAIL);
+    kstatus := ASSERT(Keras_tf1.SetWeights(weightsD, model, kModelId), LENGTH(text) = 0, 'SetWeights Exception: ' + text, FAIL);
     status := reduceResults(kstatus);
     mod :=  IF(LENGTH(status) = 0, getToken(model), 0);
     RETURN mod;
@@ -421,24 +405,12 @@ EXPORT GNNI := MODULE
   EXPORT REAL GetLoss(UNSIGNED4 model) := FUNCTION
     kModelId := model DIV kerasIdFactor;
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
-    trainLosses := Keras.GetLoss(dummy, model, kModelId);
+    trainLosses := Keras_tf1.GetLoss(dummy, model, kModelId);
     // Each node provides the average loss across samples in the epoch.
     // We return the average of those averages.
-
     trainLoss := AVE(trainLosses, loss);
     RETURN trainLoss;
   END;
-  /**
-    * Get loss when using single node configuration. We use `MAX` instead of `AVG` for single node configuration
-    */
-  SHARED REAL GetLoss4SingleNode(UNSIGNED4 model) := FUNCTION
-    kModelId := model DIV kerasIdFactor;
-    dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
-    trainLosses := Keras.GetLoss(dummy, model, kModelId);
-    trainLoss := MAX(trainLosses, loss);
-    RETURN trainLoss;
-  END;
-  
   /**
     *  Take in a set of weight slices to be updated on this node plus a set of updates (deltas)
     *  to apply to those weights (multiple slices).
@@ -460,7 +432,7 @@ EXPORT GNNI := MODULE
       SELF := l;
     END;
     outWeights0 := ROLLUP(combined, doRollup(LEFT, RIGHT), wi, sliceId, LOCAL);
-    outWeights := Tensor.R4.Replicate(outWeights0); 
+    outWeights := Tensor.R4.Replicate(outWeights0);
     RETURN outWeights;
   END;
   /**
@@ -559,7 +531,7 @@ EXPORT GNNI := MODULE
         batchPos := (batchNum-1) * eBatchSize + 1;
         xBatch := int.TensExtract(xAl, batchPos, eBatchSize);
         yBatch := int.TensExtract(yAl, batchPos, eBatchSize);
-        wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
+        wtChanges0 := IF(EXISTS(yBatch), Keras_tf1.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
         // Move all the changes for a given wi and slice to the same node.  Each
         // node has a set of wi/sliceIds to roll up.  Note that the original
         // weights are already replicated to all nodes.
@@ -569,13 +541,13 @@ EXPORT GNNI := MODULE
         // Note: newWts have been replicated to all nodes by rollUpdates.
         batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
         logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + nNodes);
+                kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss);
         RETURN newWts;
       END;
       epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
       epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
       logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
-                      kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + ', nNode = ' + nNodes);
+                      kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss);
       // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
       // 999999 to indicate that we are done.
       markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
@@ -583,165 +555,8 @@ EXPORT GNNI := MODULE
       RETURN WHEN(epochWts, logProgress);
     END;
     finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-
     RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
   END; // Fit
-
-EXPORT UNSIGNED4 OneNodeFit(
-      UNSIGNED4 model,
-      DATASET(t_Tensor) x,
-      DATASET(t_Tensor) y,
-      UNSIGNED4 batchSize = 512,
-      UNSIGNED4 numEpochs = 10,
-      REAL trainToLoss = 0,
-      REAL learningRateReduction = 1.0,
-      REAL batchSizeReduction = 1.0,
-      UNSIGNED4 localBatchSize = 32) := FUNCTION
-        // to understand this, first go with Fit() function
-        INTEGER effNodes_ := 1;   
-        kModelId := model DIV kerasIdFactor;
-        // Get the initial weights to use
-        initWts0 := GetWeights(model);
-        initWts := Tensor.R4.Replicate(initWts0);
-        
-        // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
-        // for each input and output tensor.
-        maxInputWi := MAX(x, wi);
-        // Change the wi's for outputs (y) so that they are after the input wi's
-        y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
-        aligned := Tensor.R4.AlignTensors(x + y1);
-        // Now change the Y's wi back to the original numbers
-        xAl := aligned(wi <= maxInputWi);
-        yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
-        totalRecords := Tensor.R4.GetRecordCount(yAl);
-        DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
-          // Calculate the Learning Rate for this Epoch (eLR)
-          eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
-          eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-          batchesPerEpoch := ROUNDUP(totalRecords / eBatchSize);
-          DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
-            // Train the model and Get the weight changes from each node
-            batchPos := (batchNum-1) * eBatchSize + 1;
-            xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
-            yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-            newWeights := IF(
-              EXISTS(yBatch), 
-              Keras.FitBatch(
-                DATASET([], t_Tensor), xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
-              DATASET([], t_Tensor));
-            // Move all the changes for a given wi and slice to the same node.  Each
-            // node has a set of wi/sliceIds to roll up.  Note that the original
-            // weights are already replicated to all nodes.
-            // wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
-            //newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
-            
-            // Sum up the original weights (de-replicated) and all changes for each wi and slice
-            //newWts := rollUpdates(wts2, wtChanges);
-            // Note: newWts have been replicated to all nodes by rollUpdates.
-            batchLoss0 := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)) + batchNum);
-            batchLoss:= IF(COUNT(newWeights)>0, batchLoss0, 1.0);
-            logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                    kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
-            RETURN wts2+newWeights;
-          END;
-          // end_time
-          epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-          epochLoss0 := GetLoss4SingleNode(model + (batchesPerEpoch * (epochNum-1)));
-          epochLoss := IF(COUNT(epochWts0)>0, epochLoss0, 1.0);
-          logProgress := Syslog.addWorkunitInformation('Clock: '+Date.SecondsToString(Date.CurrentSeconds(true), '%H:%M:%S') +' Training Status: ModelId = ' +
-                          kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
-                          ', nNode = ' + effNodes_);
-          // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
-          // 999999 to indicate that we are done.
-          markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
-          epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
-          RETURN WHEN(epochWts, logProgress);
-        END;
-        finalWts0 := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-        // finalwts should be evaluated
-        finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
-        //finalWts := Tensor.R4.Replicate(finalWts1);
-        newmodel := SetWeights(model, finalWts);
-        
-    RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
-    END; //OneNodeFit
-
-  EXPORT UNSIGNED4 nNodeFit(UNSIGNED4 model,
-                      DATASET(t_Tensor) x,
-                      DATASET(t_Tensor) y,
-                      UNSIGNED4 batchSize = 512,
-                      UNSIGNED4 numEpochs = 1,
-                      REAL trainToLoss = 0,
-                      REAL learningRateReduction = 1.0,
-                      REAL batchSizeReduction = 1.0,
-                      UNSIGNED4 localBatchSize = 32,
-                      INTEGER limitNodes=0) := FUNCTION
-      effNodes_ := Utils.getEffNodesNumber(limitNodes);
-  
-      // OUTPUT(startTime);
-      kModelId := model DIV kerasIdFactor;
-      // Get the initial weights to use
-      initWts0 := GetWeights(model);
-      // We get the weights from the first node and then copy them to all nodes
-      // so that everybody starts with the same weights
-      initWts := Tensor.R4.Replicate(initWts0);
-      // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
-      // for each input and output tensor.
-      startTime := Date.CurrentSeconds(true);
-      maxInputWi := MAX(x, wi);
-      // Change the wi's for outputs (y) so that they are after the input wi's
-      y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
-      aligned := Tensor.R4.AlignTensors(x + y1);
-      // Now change the Y's wi back to the original numbers
-      xAl := aligned(wi <= maxInputWi);
-      yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
-      totalRecords := Tensor.R4.GetRecordCount(yAl);
-      DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
-        // Calculate the Learning Rate for this Epoch (eLR)
-        eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
-        eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-        batchesPerEpoch := ROUNDUP(totalRecords / effNodes_ / eBatchSize);
-        DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
-          // Train the model and Get the weight changes from each node
-          batchPos := (batchNum-1) * eBatchSize + 1;
-          xBatch := int.TensExtract(xAl, batchPos, eBatchSize,limitNodes:=effNodes_);
-          yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes_);
-          wtChanges0 := IF(
-            EXISTS(yBatch), Keras.FitBatch(
-            wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), 
-            DATASET([], t_Tensor));
-          // Move all the changes for a given wi and slice to the same node.  Each
-          // node has a set of wi/sliceIds to roll up.  Note that the original
-          // weights are already replicated to all nodes.
-          wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
-          // Sum up the original weights (de-replicated) and all changes for each wi and slice
-          newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
-          // Note: newWts have been replicated to all nodes by rollUpdates.
-          batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
-          logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                  kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + effNodes_);
-          RETURN newWts;
-        END;
-        // end_time
-        epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-        epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-        logProgress := Syslog.addWorkunitInformation(' Training Status: ModelId = ' +
-                        kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
-                        ', nNode = ' + effNodes_);
-        // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
-        // 999999 to indicate that we are done.
-        markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
-        epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
-        RETURN WHEN(epochWts, logProgress);
-      END;
-      finalWts0 := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-      // at last: setweight to all nodes; not just training nodes
-      finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
-        
-      newmodel := SetWeights(model, finalWts);
-      RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
-  END; // nNodeFit
-
   /**
     * Determine the loss and other metrics in order to evaluate
     * the model.
@@ -774,7 +589,7 @@ EXPORT UNSIGNED4 OneNodeFit(
     // Now change the Y's wi back to the original number
     xAl := aligned(wi <= maxInputWi);
     yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
-    m0 := Keras.Evaluate(xAl, yAl, model, kModelId);
+    m0 := Keras_tf1.Evaluate(xAl, yAl, model, kModelId);
     m1 := DISTRIBUTE(m0, metricId);
     m2 := TABLE(m1,
                 {metricId, metricName, avgVal := AVE(GROUP, value)},
@@ -807,7 +622,7 @@ EXPORT UNSIGNED4 OneNodeFit(
     maxInputWi := MAX(x, wi); // The number of tensors in the input
     aligned := Tensor.R4.AlignTensors(x);
     xAl := IF(maxInputWi > 1, aligned, x); // Only align if multiple tensors in input
-    pred := Keras.Predict(xAl, model, kModelId);
+    pred := Keras_tf1.Predict(xAl, model, kModelId);
     return pred;
   END;
   /**
@@ -825,7 +640,7 @@ EXPORT UNSIGNED4 OneNodeFit(
                                       SELF.nNodes := nNodes,
                                       SELF.maxSliceSize := Tensor.MAX_SLICE), LOCAL);
     dummy := DATASET(1, TRANSFORM(kString, SELF.id := 1, SELF.typ := kStrType.None, SELF.text := ''), LOCAL);
-    kstatus := ASSERT(Keras.Shutdown(dummy, model), LENGTH(text) = 0, 'Shutdown Exception: ' + text, FAIL);
+    kstatus := ASSERT(Keras_tf1.Shutdown(dummy, model), LENGTH(text) = 0, 'Shutdown Exception: ' + text, FAIL);
     status := reduceResults(kstatus);
     RETURN IF(LENGTH(status) = 0, getToken(model), 0);
   END;
@@ -905,7 +720,6 @@ EXPORT UNSIGNED4 OneNodeFit(
     RETURN Fit(model, xT, yT, batchSize, numEpochs, trainToLoss, learningRateReduction,
                 batchSizeReduction, localBatchSize);
   END;
-  
   /**
     * Evaluate a model with 2 dimensional input and output using NumericField
     * matrices.
@@ -943,45 +757,5 @@ EXPORT UNSIGNED4 OneNodeFit(
     td := Predict(model, xT);
     nf := Tensor2NF(td);
     RETURN nf;
-  END;
-
-  EXPORT DATASET(GNN_Model) getModel(UNSIGNED4 mod) := FUNCTION
-    kModelId := mod DIV kerasIdFactor;
-    results := Keras.ToJSON(DATASET([], kString), mod, kModelId);
-    json := results[1].text;
-    layersRec := DATASET(1, TRANSFORM(GNN_Model, SELF.model_JSON := json, 
-      SELF.wi := 0, SELF.nodeId := 0, SELF.sliceId := 0, SELF.shape := [], SELF.dataType := 0, 
-      SELF.maxSliceSize := 0, SELF.sliceSize := 0, SELF.denseData := [], 
-      SELF.sparseData := DATASET([], Tensor.R4.t_SparseDat)), DISTRIBUTED);
-    weights := GetWeights(mod);
-    modWeights := PROJECT(weights, TRANSFORM(GNN_Model, SELF := LEFT));
-    fullModel := layersRec + modWeights;
-    RETURN fullModel;
-  END;
-
-  EXPORT UNSIGNED4 setModel(UNSIGNED4 sess, DATASET(GNN_Model) fullModel) := FUNCTION
-    layerJSON := fullModel(wi = 0)[1].model_JSON;
-    trainedWeights := PROJECT(fullModel(wi > 0), t_Tensor);
-
-    modId := FromJSON_(sess, layerJSON);
-    RETURN setWeights(modId, trainedWeights);
-  END;
-
-  /**
-    * Return a JSON representation of the Keras model.
-    *
-    * @param mod The model token as previously returned
-    *         from DefineModel(...) above.
-    * @return A JSON string representing the model definition.
-    */
-  EXPORT STRING getSummary(UNSIGNED4 mod) := FUNCTION
-    kModelId := mod DIV kerasIdFactor;
-    results := Keras.getSummary(DATASET([], kString), mod, kModelId);
-    result := results[1].text;
-    RETURN result;
-  END;
-
-  EXPORT BOOLEAN isGPUAvailable() := FUNCTION
-    RETURN Keras.isGPUAvailable();
   END;
 END; // GNNI
