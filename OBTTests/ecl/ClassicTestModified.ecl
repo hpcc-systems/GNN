@@ -96,9 +96,13 @@ Test := PROJECT(TestSet, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1
 TrainInd := NORMALIZE(Train, featureCount, TRANSFORM(TensData,
                             SELF.indexes := [LEFT.id, COUNTER],
                             SELF.value := LEFT.x[COUNTER]));
+
+OUTPUT(TrainInd, NAMED('TrainInd'));                            
 TrainDep := NORMALIZE(Train, 1, TRANSFORM(TensData,
                             SELF.indexes := [LEFT.id, COUNTER],
                             SELF.value := LEFT.y));
+OUTPUT(TrainDep, NAMED('TrainDep'));                            
+
 
 // Form a Tensor from the tensor data.  This packs the data into 'slices' that can contain dense
 // or sparse portions of the Tensor.  If the tensor is small, it will fit into a single slice.
@@ -107,6 +111,11 @@ TrainDep := NORMALIZE(Train, 1, TRANSFORM(TensData,
 // arbitrary length set of records.
 TrainIndTensor:= Tensor.R4.MakeTensor([0, featureCount], TrainInd);
 TrainDepTensor := Tensor.R4.MakeTensor([0, 1], TrainDep);
+
+OUTPUT(TrainIndTensor, NAMED('TrainIndTensor'));                            
+OUTPUT(TrainDepTensor, NAMED('TrainDepTensor'));                            
+
+
 
 TestInd := NORMALIZE(test, featureCount, TRANSFORM(TensData,
                             SELF.indexes := [LEFT.id, COUNTER],

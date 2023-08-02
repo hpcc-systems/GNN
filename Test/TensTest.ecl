@@ -4,7 +4,7 @@
 /**
   * Unit tests for the Tensor module
   */
-IMPORT Python;
+IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
 IMPORT GNN.Internal AS int;
