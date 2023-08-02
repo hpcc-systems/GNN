@@ -4,7 +4,7 @@
 /**
   * Test the TensorExtract module
   */
-IMPORT Python;
+IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
 IMPORT GNN.Internal.Types AS iTypes;

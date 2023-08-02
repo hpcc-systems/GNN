@@ -180,3 +180,5 @@ preds := GNNI.PredictNF(mod2, testX);
 
 OUTPUT(testY, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
+
+OUTPUT(IF(metrics[2].value>0.95, 'Pass', 'Fail'), NAMED('Accuracy'));
