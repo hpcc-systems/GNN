@@ -91,34 +91,19 @@ wts := GNNI.GetWeights(mod);
 OUTPUT(wts, NAMED('InitWeights'));
 
 
-// mod2 := GNNI.Fit(
-//     mod, 
-//     trainX3, 
-//     trainY3, 
-//     batchSize := batchSize, 
-//     numEpochs := numEpochs);
-// OUTPUT(mod2, NAMED('mod2'));
-
 startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');
 
-// mod2 := GNNI.OneNodeFit(
-//     mod, trainX3, trainY3, 
-//     batchSize := batchSize, 
-//     numEpochs := numEpochs
-//     );
-
-
-#WORKUNIT('name', 'mnist_n__3');
-
-mod2 := GNNI.nNodeFit(
+mod2 := GNNI.Fit(
     mod, trainX3, trainY3, 
     batchSize := batchSize, 
     numEpochs := numEpochs,
-    limitNodes := 3
+    limitNodes := 0
     );
 
 endTime := Date.CurrentSeconds(true);
 // OUTPUT(mod3, NAMED('mod3'));
+
+#WORKUNIT('name', 'mnist_small_n__0');
 
 SEQUENTIAL(
   OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),

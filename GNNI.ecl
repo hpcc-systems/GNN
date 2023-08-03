@@ -463,131 +463,8 @@ EXPORT GNNI := MODULE
     outWeights := Tensor.R4.Replicate(outWeights0); 
     RETURN outWeights;
   END;
-  /**
-    * Train the model using synchronous batch distributed gradient descent.
-    * <p>The X tensor represents the independent training data and the Y
-    * tensor represents the dependent training data.
-    * <p>Both X and Y tensors
-    * should be record-oriented tensors, indicated by a first shape
-    * component of zero.  These must also be distributed (not replicated)
-    * tensors.  If the model specifies multiple inputs or outputs, then
-    * tensor lists should be supplied, using the work-item id (wi) to
-    * distinguish the order of the tensors in the tensor list (see Tensor.ecl).
-    * <p>BatchSize defines how many observations are processed on each node
-    * before weights are re-synchronized.  There is an interaction between
-    * the number of nodes in the cluster, the batchSize, and the complexity
-    * of the model.  A larger batch size will process epochs faster, but
-    * the loss reduction may be less per epoch.  As the number of nodes
-    * is increased, a smaller batchSize may be required.  The default
-    * batchSize of 512 is a good starting point, but may require tuning to
-    * increase performance or improve convergence (i.e. loss reduction).
-    * Final loss should be used to assess the fit, rather than number of
-    * epochs trained.  For example, for a given neural network, a loss of
-    * .02 may be the optimal tradeoff between underfit and overfit.  In that case
-    * the network should be trained to that level, adjusting number of epochs
-    * and batchSize to reach that level.  Alternatively, the trainToLoss
-    * parameter can be used to automatically stop when a given level of
-    * loss is achieved.  See the top-level module documentation for more
-    * insight on Performance Considerations.
-    * <p>
-    *
-    * @param model The model token from the previous GNNI call.
-    * @param x The independent training data tensor or tensor list.
-    * @param y The dependent training data tensor or tensor list.
-    * @param batchSize The number of records to process on each node before
-    *         re-synchronizing weights across nodes.
-    * @param numEpochs The number of times to iterate over the full training
-    *         set.
-    * @param trainToLoss Causes training to exit before numEpochs is complete
-    *         if the trainToLoss is met.  Defaults to 0, meaning that all
-    *         epochs will be run.  When using trainToLoss, numEpochs should
-    *         be set to a high value so that it does not exit before the training
-    *         goal is met.  Note that not all network / training data configurations
-    *         can be trained to a given loss.  The nature of the data and
-    *         the network configuration limits the minimum achievable loss.
-    * @param learningRateReduction Controls how much the learning rate is
-    *         reduced as epochs progress.  For some networks, training can
-    *         be improved by gradulally reducing the learning rate.  The
-    *         default value (1.0), maintains the original learning rate
-    *         across all epochs.  A value of .5 would cause the learning
-    *         rate to be reduced to half the original rate by the final
-    *         epoch.
-    * @param batchSizeReduction Controls how much the batchSize is
-    *         reduced as epochs progress.  For some networks, training can
-    *         be improved by gradually reducing the batchSize.  The
-    *         default value (1.0), maintains the original batchSize
-    *         across all epochs.  A value of .25 would cause the learning
-    *         rate to be reduced to one quarter the original rate by the final
-    *         epoch.
-    * @param localBatchSize The batch size to use when calling Keras Fit()
-    *         on each local machine.  The default (32) is recommended for
-    *         most uses.
-    * @return A new model token for use with subsequent GNNI calls.
-    */
-  EXPORT UNSIGNED4 Fit(UNSIGNED4 model,
-                      DATASET(t_Tensor) x,
-                      DATASET(t_Tensor) y,
-                      UNSIGNED4 batchSize = 512,
-                      UNSIGNED4 numEpochs = 1,
-                      REAL trainToLoss = 0,
-                      REAL learningRateReduction = 1.0,
-                      REAL batchSizeReduction = 1.0,
-                      UNSIGNED4 localBatchSize = 32) := FUNCTION
-    kModelId := model DIV kerasIdFactor;
-    // Get the initial weights to use
-    initWts0 := GetWeights(model);
-    // We get the weights from the first node and then copy them to all nodes
-    // so that everybody starts with the same weights
-    initWts := Tensor.R4.Replicate(initWts0);
-    // Align the X and Y tensor lists so that we will get the corresponding records on the same nodes
-    // for each input and output tensor.
-    maxInputWi := MAX(x, wi);
-    // Change the wi's for outputs (y) so that they are after the input wi's
-    y1 := PROJECT(y, TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi + maxInputWi, SELF := LEFT), LOCAL);
-    aligned := Tensor.R4.AlignTensors(x + y1);
-    // Now change the Y's wi back to the original numbers
-    xAl := aligned(wi <= maxInputWi);
-    yAl := PROJECT(aligned(wi > maxInputWi), TRANSFORM(RECORDOF(LEFT), SELF.wi := LEFT.wi - maxInputWi, SELF := LEFT), LOCAL);
-    totalRecords := Tensor.R4.GetRecordCount(yAl);
-    DATASET(t_Tensor) doEpoch(DATASET(t_Tensor) wts1, UNSIGNED epochNum) := FUNCTION
-      // Calculate the Learning Rate for this Epoch (eLR)
-      eLR := 1 - ((epochNum - 1) / (numEpochs - 1) * (1 - learningRateReduction));
-      eBatchSize := MAX(TRUNCATE((1 - ((epochNum -1) / (numEpochs -1) * (1 - batchSizeReduction))) * batchSize), 512);
-      batchesPerEpoch := ROUNDUP(totalRecords / nNodes / eBatchSize);
-      DATASET(t_Tensor) doBatch(DATASET(t_Tensor) wts2, UNSIGNED batchNum) := FUNCTION
-        // Train the model and Get the weight changes from each node
-        batchPos := (batchNum-1) * eBatchSize + 1;
-        xBatch := int.TensExtract(xAl, batchPos, eBatchSize);
-        yBatch := int.TensExtract(yAl, batchPos, eBatchSize);
-        wtChanges0 := IF(EXISTS(yBatch), Keras.FitBatch(wts2, xBatch, yBatch, model, epochNum, kModelId, localBatchSize, eLR), DATASET([], t_Tensor));
-        // Move all the changes for a given wi and slice to the same node.  Each
-        // node has a set of wi/sliceIds to roll up.  Note that the original
-        // weights are already replicated to all nodes.
-        wtChanges := DISTRIBUTE(wtChanges0, wi + sliceId);
-        // Sum up the original weights (de-replicated) and all changes for each wi and slice
-        newWts := rollUpdates(wts2((wi + sliceId) % nNodes = nodeId), wtChanges);
-        // Note: newWts have been replicated to all nodes by rollUpdates.
-        batchLoss := IF(EXISTS(newWts), GetLoss(model + (batchesPerEpoch * (epochNum-1)) + batchNum), 1.0);
-        logProgress2 := Syslog.addWorkunitInformation('Training Status (2): ModelId = ' +
-                kModelId + ', Epoch = ' + epochNum + ', Batch = ' + batchNum + ', Loss = ' + batchLoss + ', nNode = ' + nNodes);
-        RETURN newWts;
-      END;
-      epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
-      epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-      logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
-                      kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + ', nNode = ' + nNodes);
-      // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
-      // 999999 to indicate that we are done.
-      markFinal := PROJECT(epochWts0, TRANSFORM(RECORDOF(LEFT), SELF.nodeId := 999999, SELF := LEFT));
-      epochWts := IF(epochLoss < trainToLoss, markFinal, epochWts0);
-      RETURN WHEN(epochWts, logProgress);
-    END;
-    finalWts := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
 
-    RETURN IF(EXISTS(finalWts), getToken(model + numEpochs * numEpochs), 0);
-  END; // Fit
-
-EXPORT UNSIGNED4 OneNodeFit(
+  SHARED UNSIGNED4 OneNodeFit(
       UNSIGNED4 model,
       DATASET(t_Tensor) x,
       DATASET(t_Tensor) y,
@@ -664,9 +541,136 @@ EXPORT UNSIGNED4 OneNodeFit(
         newmodel := SetWeights(model, finalWts);
         
     RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
-    END; //OneNodeFit
+  END; //OneNodeFit
 
-  EXPORT UNSIGNED4 nNodeFit(UNSIGNED4 model,
+  /**
+    * Train the model using synchronous batch distributed gradient descent.
+    * <p>The X tensor represents the independent training data and the Y
+    * tensor represents the dependent training data.
+    * <p>Both X and Y tensors
+    * should be record-oriented tensors, indicated by a first shape
+    * component of zero.  These must also be distributed (not replicated)
+    * tensors.  If the model specifies multiple inputs or outputs, then
+    * tensor lists should be supplied, using the work-item id (wi) to
+    * distinguish the order of the tensors in the tensor list (see Tensor.ecl).
+    * <p>BatchSize defines how many observations are processed on each node
+    * before weights are re-synchronized.  There is an interaction between
+    * the number of nodes in the cluster, the batchSize, and the complexity
+    * of the model.  A larger batch size will process epochs faster, but
+    * the loss reduction may be less per epoch.  As the number of nodes
+    * is increased, a smaller batchSize may be required.  The default
+    * batchSize of 512 is a good starting point, but may require tuning to
+    * increase performance or improve convergence (i.e. loss reduction).
+    * Final loss should be used to assess the fit, rather than number of
+    * epochs trained.  For example, for a given neural network, a loss of
+    * .02 may be the optimal tradeoff between underfit and overfit.  In that case
+    * the network should be trained to that level, adjusting number of epochs
+    * and batchSize to reach that level.  Alternatively, the trainToLoss
+    * parameter can be used to automatically stop when a given level of
+    * loss is achieved.  See the top-level module documentation for more
+    * insight on Performance Considerations.
+    * <p>
+    *
+    * @param model The model token from the previous GNNI call.
+    * @param x The independent training data tensor or tensor list.
+    * @param y The dependent training data tensor or tensor list.
+    * @param batchSize The number of records to process on each node before
+    *         re-synchronizing weights across nodes.
+    * @param numEpochs The number of times to iterate over the full training
+    *         set.
+    * @param trainToLoss Causes training to exit before numEpochs is complete
+    *         if the trainToLoss is met.  Defaults to 0, meaning that all
+    *         epochs will be run.  When using trainToLoss, numEpochs should
+    *         be set to a high value so that it does not exit before the training
+    *         goal is met.  Note that not all network / training data configurations
+    *         can be trained to a given loss.  The nature of the data and
+    *         the network configuration limits the minimum achievable loss.
+    * @param learningRateReduction Controls how much the learning rate is
+    *         reduced as epochs progress.  For some networks, training can
+    *         be improved by gradulally reducing the learning rate.  The
+    *         default value (1.0), maintains the original learning rate
+    *         across all epochs.  A value of .5 would cause the learning
+    *         rate to be reduced to half the original rate by the final
+    *         epoch.
+    * @param batchSizeReduction Controls how much the batchSize is
+    *         reduced as epochs progress.  For some networks, training can
+    *         be improved by gradually reducing the batchSize.  The
+    *         default value (1.0), maintains the original batchSize
+    *         across all epochs.  A value of .25 would cause the learning
+    *         rate to be reduced to one quarter the original rate by the final
+    *         epoch.
+    * @param localBatchSize The batch size to use when calling Keras Fit()
+    *         on each local machine.  The default (32) is recommended for
+    *         most uses.
+    * @return A new model token for use with subsequent GNNI calls.
+    */
+
+
+   /**
+    * Train the model using synchronous batch distributed gradient descent.
+    * <p>The X tensor represents the independent training data and the Y
+    * tensor represents the dependent training data.
+    * <p>Both X and Y tensors
+    * should be record-oriented tensors, indicated by a first shape
+    * component of zero.  These must also be distributed (not replicated)
+    * tensors.  If the model specifies multiple inputs or outputs, then
+    * tensor lists should be supplied, using the work-item id (wi) to
+    * distinguish the order of the tensors in the tensor list (see Tensor.ecl).
+    * <p>BatchSize defines how many observations are processed on each node
+    * before weights are re-synchronized.  There is an interaction between
+    * the number of nodes in the cluster, the batchSize, and the complexity
+    * of the model.  A larger batch size will process epochs faster, but
+    * the loss reduction may be less per epoch.  As the number of nodes
+    * is increased, a smaller batchSize may be required.  The default
+    * batchSize of 512 is a good starting point, but may require tuning to
+    * increase performance or improve convergence (i.e. loss reduction).
+    * Final loss should be used to assess the fit, rather than number of
+    * epochs trained.  For example, for a given neural network, a loss of
+    * .02 may be the optimal tradeoff between underfit and overfit.  In that case
+    * the network should be trained to that level, adjusting number of epochs
+    * and batchSize to reach that level.  Alternatively, the trainToLoss
+    * parameter can be used to automatically stop when a given level of
+    * loss is achieved.  See the top-level module documentation for more
+    * insight on Performance Considerations.
+    * <p>
+    *
+    * @param model The model token from the previous GNNI call.
+    * @param x The independent training data tensor or tensor list.
+    * @param y The dependent training data tensor or tensor list.
+    * @param batchSize The number of records to process on each node before
+    *         re-synchronizing weights across nodes.
+    * @param numEpochs The number of times to iterate over the full training
+    *         set.
+    * @param trainToLoss Causes training to exit before numEpochs is complete
+    *         if the trainToLoss is met.  Defaults to 0, meaning that all
+    *         epochs will be run.  When using trainToLoss, numEpochs should
+    *         be set to a high value so that it does not exit before the training
+    *         goal is met.  Note that not all network / training data configurations
+    *         can be trained to a given loss.  The nature of the data and
+    *         the network configuration limits the minimum achievable loss.
+    * @param learningRateReduction Controls how much the learning rate is
+    *         reduced as epochs progress.  For some networks, training can
+    *         be improved by gradulally reducing the learning rate.  The
+    *         default value (1.0), maintains the original learning rate
+    *         across all epochs.  A value of .5 would cause the learning
+    *         rate to be reduced to half the original rate by the final
+    *         epoch.
+    * @param batchSizeReduction Controls how much the batchSize is
+    *         reduced as epochs progress.  For some networks, training can
+    *         be improved by gradually reducing the batchSize.  The
+    *         default value (1.0), maintains the original batchSize
+    *         across all epochs.  A value of .25 would cause the learning
+    *         rate to be reduced to one quarter the original rate by the final
+    *         epoch.
+    * @param localBatchSize The batch size to use when calling Keras Fit()
+    *         on each local machine.  The default (32) is recommended for
+    *         most uses.
+    * @param limitNodes We can limit the number of nodes that is going to be
+              used for training using limitNodes parameter. The default (0) is 
+              using all available nodes.
+    * @return A new model token for use with subsequent GNNI calls.
+    */
+  EXPORT UNSIGNED4 Fit(UNSIGNED4 model,
                       DATASET(t_Tensor) x,
                       DATASET(t_Tensor) y,
                       UNSIGNED4 batchSize = 512,
@@ -676,10 +680,10 @@ EXPORT UNSIGNED4 OneNodeFit(
                       REAL batchSizeReduction = 1.0,
                       UNSIGNED4 localBatchSize = 32,
                       INTEGER limitNodes=0) := FUNCTION
-      effNodes_ := Utils.getEffNodesNumber(limitNodes);
-  
-      // OUTPUT(startTime);
-      kModelId := model DIV kerasIdFactor;
+    effNodes_ := Utils.getEffNodesNumber(limitNodes);
+
+    UNSIGNED4 nNodeFit():= FUNCTION
+       kModelId := model DIV kerasIdFactor;
       // Get the initial weights to use
       initWts0 := GetWeights(model);
       // We get the weights from the first node and then copy them to all nodes
@@ -725,7 +729,7 @@ EXPORT UNSIGNED4 OneNodeFit(
         // end_time
         epochWts0 := LOOP(wts1, batchesPerEpoch, doBatch(ROWS(LEFT), COUNTER));
         epochLoss := IF(EXISTS(epochWts0), GetLoss(model + (batchesPerEpoch * (epochNum-1))), 1.0);
-        logProgress := Syslog.addWorkunitInformation(' Training Status: ModelId = ' +
+        logProgress := Syslog.addWorkunitInformation('Training Status: ModelId = ' +
                         kModelId + ', Epoch = ' + epochNum + ', LR = ' + ROUND(eLR, 2) + ', bs = ' + eBatchSize + ', Loss = ' + epochLoss + 
                         ', nNode = ' + effNodes_);
         // If we've met the trainToLoss goal, mark as final to end the LOOP.  We mark the node id as
@@ -735,12 +739,17 @@ EXPORT UNSIGNED4 OneNodeFit(
         RETURN WHEN(epochWts, logProgress);
       END;
       finalWts0 := LOOP(initWts, numEpochs, LEFT.nodeId < 999999, EXISTS(ROWS(LEFT)), doEpoch(ROWS(LEFT), COUNTER));
-      // at last: setweight to all nodes; not just training nodes
       finalWts := IF(EXISTs(finalWts0), getWeights(model), finalWts0);
-        
+      // at last: setweight to all nodes; not just training nodes  
       newmodel := SetWeights(model, finalWts);
       RETURN IF(EXISTS(finalWts), getToken(newmodel + numEpochs * numEpochs), 0);
-  END; // nNodeFit
+    END; // nNodeFit
+    // For single node, we don't need to communicate weight change between nodes, so we have better time, compared to n=1
+    RETURN IFF(effNodes_=1, 
+        OneNodeFit(model, x, y, batchSize, numEpochs, trainToLoss, learningRateReduction, batchSizeReduction, localBatchSize), 
+        nNodeFit()
+    );   
+  END;//Fit 
 
   /**
     * Determine the loss and other metrics in order to evaluate
