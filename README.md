@@ -50,6 +50,9 @@ The folder Test/HARTests
 contains tests that show how to create more sophisticated Convolutional and
 Recurrent networks.
 
+The folder Test/PretrainedModelTest
+contains tests that show how to use the pre-trained models.
+
 ## OTHER DOCUMENTATION
 Programmer Documentation is available at:
 [HPCC Machine Learning Library](http://hpccsystems.com/download/free-modules/machine-learning-library)
