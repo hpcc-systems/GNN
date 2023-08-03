@@ -204,14 +204,11 @@ OUTPUT(wts, NAMED('InitWeights'));
 
 startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');//: PERSIST('startTime', REFRESH(True));
 
-mod3 := GNNI.OneNodeFit(
-  mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
-
 #WORKUNIT('name', 'single_node');
-// mod3 := GNNI.nNodeFit(
-//   mod, trainX, trainY, batchSize := batchSize, 
-//   numEpochs := numEpochs, 
-//   limitNodes:=1);
+mod3 := GNNI.Fit(
+  mod, trainX, trainY, batchSize := batchSize, 
+  numEpochs := numEpochs, 
+  limitNodes:=1);
 
 endTime := Date.CurrentSeconds(true);//: PERSIST('endTime', refresh(True));
 // OUTPUT(mod3, NAMED('mod3'));
