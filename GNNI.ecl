@@ -136,6 +136,11 @@ FuncLayerDef := GNN.Types.FuncLayerDef;
   *
   */
 EXPORT GNNI := MODULE
+
+  EXPORT GNN_Model := RECORD(t_Tensor)
+     STRING model_JSON := '';
+  END;
+  
   /**
     * Generate a sequential token.  By making this a python function,
     * we prevent the compiler from pre-determining the result, potentially
@@ -179,7 +184,7 @@ EXPORT GNNI := MODULE
     status := reduceResults(kstatus);
     model := IF(LENGTH(status) = 0, getToken(0), 0);
     RETURN model;
- END;
+  END;
   /**
     * Define a Keras / Tensorflow model using Keras sytax.  Optionally
     * also provide a "compile" line with the compilation parameters for the
@@ -268,11 +273,15 @@ EXPORT GNNI := MODULE
     *         from DefineModel(...) above.
     * @return A JSON string representing the model definition.
     */
-  EXPORT STRING ToJSON(UNSIGNED4 mod) := FUNCTION
-    kModelId := mod DIV kerasIdFactor;
-    results := Keras.ToJSON(DATASET([], kString), mod, kModelId);
+  SHARED STRING ToJSON_(UNSIGNED4 model) := FUNCTION
+    kModelId := model DIV kerasIdFactor;
+    results := Keras.ToJSON(DATASET([], kString), model, kModelId);
     result := results[1].text;
     RETURN result;
+  END;
+
+  EXPORT STRING ToJSON(UNSIGNED4 model) := FUNCTION
+    RETURN ToJSON_(model);
   END;
 
   /**
@@ -287,7 +296,7 @@ EXPORT GNNI := MODULE
     *         returned from ToJSON(...).
     * @return A model token to be used in subsequent GNNI calls.
     */
-  EXPORT UNSIGNED4 FromJSON(UNSIGNED4 sess, STRING json) := FUNCTION
+  SHARED UNSIGNED4 FromJSON_(UNSIGNED4 sess, STRING json) := FUNCTION
     mdefRepl := DATASET(1, TRANSFORM(kString,
                                     SELF.id :=1,
                                     SELF.typ := kStrType.json,
@@ -304,6 +313,10 @@ EXPORT GNNI := MODULE
     modelBase := modelId * kerasIdFactor;
     model := IF(LENGTH(status) = 0, getToken(sess + modelBase), 0);
     RETURN model;
+  END;
+
+  EXPORT UNSIGNED4 FromJSON(UNSIGNED4 sess, STRING json) := FUNCTION
+    RETURN FromJSON_(sess, json);
   END;
   /**
     * Compile a previously defined Keras model.
@@ -757,5 +770,64 @@ EXPORT GNNI := MODULE
     td := Predict(model, xT);
     nf := Tensor2NF(td);
     RETURN nf;
+  END;
+  /*
+  * Returns the structure and weights of the model.
+  *
+  * @param model The model token as previously returned
+  *           from DefineModel(...) above.
+  * @return A DATASET containing the structure and weights of the model.
+  */
+  EXPORT DATASET(GNN_Model) GetModel(UNSIGNED4 model) := FUNCTION
+    kModelId := model DIV kerasIdFactor;
+    results := Keras.ToJSON(DATASET([], kString), model, kModelId);
+    json := results[1].text;
+    layersRec := DATASET(1, TRANSFORM(GNN_Model, SELF.model_JSON := json, 
+      SELF.wi := 0, SELF.nodeId := 0, SELF.sliceId := 0, SELF.shape := [], SELF.dataType := 0, 
+      SELF.maxSliceSize := 0, SELF.sliceSize := 0, SELF.denseData := [], 
+      SELF.sparseData := DATASET([], Tensor.R4.t_SparseDat)), DISTRIBUTED);
+    weights := GetWeights(model);
+    modWeights := PROJECT(weights, TRANSFORM(GNN_Model, SELF := LEFT));
+    fullModel := layersRec + modWeights;
+    RETURN fullModel;
+  END;
+  /*
+  * Creates a Keras model from previously saved DATASET.
+  * <p>Note that this call defines the model, but does not
+  * restore the compile definition.
+  * CompileMod(...) should be called after this to define the
+  * model compilation parameters.
+
+  * @param sess A session token previously returned from GetSession(..).
+  * @param FullModel A DATASET containing the structure and weights of the model.
+  * @return A model token to be used in subsequent GNNI calls.
+  */
+  EXPORT UNSIGNED4 SetModel(UNSIGNED4 sess, DATASET(GNN_Model) FullModel) := FUNCTION
+    layerJSON := FullModel(wi = 0)[1].model_JSON;
+    trainedWeights := PROJECT(FullModel(wi > 0), t_Tensor);
+
+    modId := FromJSON_(sess, layerJSON);
+    RETURN setWeights(modId, trainedWeights);
+  END;
+
+  /**
+    * Returns the summary of the Keras model.
+    *
+    * @param model The model token as previously returned
+    *         from DefineModel(...) above.
+    * @return A string representing the summary of the model.
+    */
+  EXPORT STRING GetSummary(UNSIGNED4 model) := FUNCTION
+    kModelId := model DIV kerasIdFactor;
+    results := Keras.getSummary(DATASET([], kString), model, kModelId);
+    result := results[1].text;
+    RETURN result;
+  END;
+  /*
+  * Tests whether the GPU is available in the current environment.
+  * @return Whether the current GPU is available.
+  */
+  EXPORT BOOLEAN IsGPUAvailable() := FUNCTION
+    RETURN Keras.isGPUAvailable();
   END;
 END; // GNNI
