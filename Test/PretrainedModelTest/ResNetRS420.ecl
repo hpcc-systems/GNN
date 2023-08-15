@@ -29,7 +29,7 @@ kStrType := iTypes.kStrType;
 t_Tensor := Tensor.R4.t_Tensor;
 TensData := Tensor.R4.TensData;
 
-// load the test data, an image of a elephant
+// load the test data, an image of an elephant
 imageRecord := RECORD
   STRING filename;
   DATA   image;   

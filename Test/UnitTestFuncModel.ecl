@@ -119,15 +119,16 @@ compileDef3 := '''compile(optimizer=tf.keras.optimizers.RMSprop(epsilon=1e-08),
                 loss='categorical_crossentropy', metrics=[tf.keras.metrics.CategoricalAccuracy()])
               ''';
 
-fldef3 := DATASET([{'input', '''layers.Input(shape=(32, 32, 3))''', []},  // Input
-                {'UpSampling', '''layers.UpSampling2D(size=(7, 7), interpolation='bilinear')''', ['input']},  // UpSampling Layer
-                {'ResNet50', '''applications.resnet50.ResNet50(include_top = False, weights = "imagenet")''', ['UpSampling']}, // ResNet50
-                {'Pooling', '''layers.GlobalAveragePooling2D()''', ['ResNet50']},   // Pooling Layer
-                {'Dropout', '''layers.Dropout(0.25)''', ['Pooling']},   // Dropout Layer
-                {'Dense1', '''layers.Dense(256, activation='relu')''', ['Dropout']},   // Dense Layer
-                {'Normalization', '''layers.BatchNormalization()''', ['Dense1']},   // Normalization Layer
-                {'output', '''layers.Dense(100, activation='softmax')''', ['Normalization']}], // Output
-            FuncLayerDef);
+fldef3 := DATASET([
+    {'input', '''layers.Input(shape=(32, 32, 3))''', []},  // Input
+    {'UpSampling', '''layers.UpSampling2D(size=(7, 7), interpolation='bilinear')''', ['input']},  // UpSampling Layer
+    {'ResNet50', '''applications.resnet50.ResNet50(include_top = False, weights = "imagenet")''', ['UpSampling']},
+    {'Pooling', '''layers.GlobalAveragePooling2D()''', ['ResNet50']},   // Pooling Layer
+    {'Dropout', '''layers.Dropout(0.25)''', ['Pooling']},   // Dropout Layer
+    {'Dense1', '''layers.Dense(256, activation='relu')''', ['Dropout']},   // Dense Layer
+    {'Normalization', '''layers.BatchNormalization()''', ['Dense1']},   // Normalization Layer
+    {'output', '''layers.Dense(100, activation='softmax')''', ['Normalization']}], // Output
+    FuncLayerDef);
 
 mod5 := GNNI.DefineFuncModel(s, fldef3, ['input'], ['output'], compileDef3);
 mod5_summary := GNNI.getSummary(mod5);

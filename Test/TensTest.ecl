@@ -58,7 +58,9 @@ test0 := DATASET(datCount, TRANSFORM(testRec,
                       );
 // Be sure to compute Y in a second step.  Otherewise, the RANDOM() will be executed twice and the Y will be based
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
-testDat := PROJECT(test0, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+testDat := PROJECT(test0, TRANSFORM(RECORDOF(LEFT), 
+    SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), 
+    SELF := LEFT));
 OUTPUT(testDat, NAMED('testData'));
 
 tensDatX0 := NORMALIZE(testDat, featureCount, TRANSFORM(TensData,

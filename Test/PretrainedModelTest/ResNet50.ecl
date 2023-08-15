@@ -30,7 +30,7 @@ kStrType := iTypes.kStrType;
 t_Tensor := Tensor.R4.t_Tensor;
 TensData := Tensor.R4.TensData;
 
-// load the test data, an image of a elephant
+// load the test data, an image of an elephant
 imageRecord := RECORD
   STRING filename;
   DATA   image;   
@@ -71,7 +71,9 @@ END;
 imageNpArray := hexToNparry(imageData[1].image);
 x1 := DATASET(imageNpArray, valueRec);
 x2 := PROJECT(x1, TRANSFORM(idValueRec, SELF.id := COUNTER - 1, SELF.value := LEFT.value));
-x3 := PROJECT(x2, TRANSFORM(TensData, SELF.indexes := [1, TRUNCATE(LEFT.id/(224*3)) + 1, TRUNCATE(LEFT.id/3)%224 + 1, LEFT.id%3 + 1], SELF.value := LEFT.value));
+x3 := PROJECT(x2, TRANSFORM(TensData,
+    SELF.indexes := [1, TRUNCATE(LEFT.id/(224*3)) + 1, TRUNCATE(LEFT.id/3)%224 + 1, LEFT.id%3 + 1],
+    SELF.value := LEFT.value));
 x := Tensor.R4.MakeTensor([0,224,224,3], x3);
 
 // load the model

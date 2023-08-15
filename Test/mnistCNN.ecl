@@ -72,8 +72,12 @@ x2 := PROJECT(x1, TRANSFORM(intpuRec, SELF.id := COUNTER - 1, SELF.value := LEFT
 y2 := PROJECT(y1, TRANSFORM(intpuRec, SELF.id := COUNTER - 1, SELF.value := LEFT.value));
 
 
-x3 := PROJECT(x2, TRANSFORM(TensData, SELF.indexes := [TRUNCATE(LEFT.id/784) + 1, TRUNCATE(LEFT.id%784/28) + 1, LEFT.id%28 + 1], SELF.value := LEFT.value));
-y3 := PROJECT(y2, TRANSFORM(TensData, SELF.indexes := [TRUNCATE(LEFT.id/10) + 1, LEFT.id%10 + 1], SELF.value := LEFT.value));
+x3 := PROJECT(x2, TRANSFORM(TensData, 
+    SELF.indexes := [TRUNCATE(LEFT.id/784) + 1, TRUNCATE(LEFT.id%784/28) + 1, LEFT.id%28 + 1], 
+    SELF.value := LEFT.value));
+y3 := PROJECT(y2, TRANSFORM(TensData, 
+    SELF.indexes := [TRUNCATE(LEFT.id/10) + 1, LEFT.id%10 + 1], 
+    SELF.value := LEFT.value));
 
 
 x := Tensor.R4.MakeTensor([0,28,28], x3);
@@ -135,8 +139,12 @@ y1_test := DATASET(test_Y, t1Rec);
 x2_test := PROJECT(x1_test, TRANSFORM(intpuRec, SELF.id := COUNTER - 1, SELF.value := LEFT.value));
 y2_test := PROJECT(y1_test, TRANSFORM(intpuRec, SELF.id := COUNTER - 1, SELF.value := LEFT.value));
 
-x3_test := PROJECT(x2_test, TRANSFORM(TensData, SELF.indexes := [TRUNCATE(LEFT.id/784) + 1, TRUNCATE(LEFT.id%784/28) + 1, LEFT.id%28 + 1], SELF.value := LEFT.value));
-y3_test := PROJECT(y2_test, TRANSFORM(TensData, SELF.indexes := [TRUNCATE(LEFT.id/10) + 1, LEFT.id%10 + 1], SELF.value := LEFT.value));
+x3_test := PROJECT(x2_test, TRANSFORM(TensData, 
+    SELF.indexes := [TRUNCATE(LEFT.id/784) + 1, TRUNCATE(LEFT.id%784/28) + 1, LEFT.id%28 + 1], 
+    SELF.value := LEFT.value));
+y3_test := PROJECT(y2_test, TRANSFORM(TensData, 
+    SELF.indexes := [TRUNCATE(LEFT.id/10) + 1, LEFT.id%10 + 1], 
+    SELF.value := LEFT.value));
 
 x_test := Tensor.R4.MakeTensor([0,28,28], x3_test);
 y_test := Tensor.R4.MakeTensor([0, 10], y3_test);

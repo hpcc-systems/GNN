@@ -58,7 +58,8 @@ train0 := DATASET(trainCount, TRANSFORM(trainRec,
                       );
 // Be sure to compute Y in a second step.  Otherwise, the RANDOM() will be executed twice and the Y will be based
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
-train := PROJECT(train0, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+train := PROJECT(train0, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 OUTPUT(train, NAMED('trainData'));
 
 // Build the test data.  Same process as the training data.
@@ -72,7 +73,8 @@ test0 := DATASET(testCount, TRANSFORM(trainRec,
                       SELF.y := 0)
                       );
 
-test := PROJECT(test0, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+test := PROJECT(test0, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 
 // Break the training and test data into X (independent) and Y (dependent) data sets.  Format as Tensor Data.
 trainX0 := NORMALIZE(train, featureCount, TRANSFORM(TensData,
