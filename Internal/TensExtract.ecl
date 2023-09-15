@@ -2,7 +2,7 @@ IMPORT PYTHON3 as PYTHON;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
 IMPORT Std.System.Thorlib;
-
+IMPORT GNN.Utils;
 nodeId := Thorlib.node();
 nNodes := Thorlib.nodes();
 
@@ -21,7 +21,8 @@ MAX_SLICE := POWER(2, 24);
   * @see Tensor.AlignTensors
   */
 EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
-                                    UNSIGNED datcount) := FUNCTION
+                                    UNSIGNED datcount, INTEGER limitNodes=0) := FUNCTION
+
   // Python embed function to do most of the heavy lifting.
   STREAMED DATASET(t_Tensor) extract(STREAMED DATASET(t_Tensor) tens,
             UNSIGNED pos, UNSIGNED datcount, nodeid, nNodes, maxslice) := EMBED(Python: activity)
@@ -179,5 +180,14 @@ EXPORT DATASET(t_Tensor) TensExtract(DATASET(t_Tensor) tens, UNSIGNED pos,
       # END OF getResults()
     return getResults()
   ENDEMBED; // Extract
-  RETURN SORT(extract(tens, pos-1, datcount, nodeId, nNodes, MAX_SLICE), wi, sliceId, LOCAL);
+
+  effNodes := Utils.getEffNodesNumber(limitNodes);
+
+  extractedData0 := extract(tens, pos-1, datcount, nodeId, nNodes, MAX_SLICE);
+  extractedDataD := DISTRIBUTE(extractedData0, nodeId % effNodes); // ROUNDUP(Thorlib.nodes() / effNodes)
+
+  extractDataD1 := Project(NOCOMBINE(extractedDataD), TRANSFORM(RECORDOF(LEFT), SELF.nodeId:=nodeId, SELF:=LEFT));
+  extractedData := IF(limitNodes=0, extractedData0, extractDataD1);
+  
+  RETURN SORT(extractedData, wi, sliceId, LOCAL);
 END;

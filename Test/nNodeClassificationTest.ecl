@@ -1,4 +1,4 @@
-﻿/*##############################################################################
+/*##############################################################################
 ## HPCC SYSTEMS software Copyright (C) 2019 HPCC Systems.  All rights reserved.
 ############################################################################## */
 /**
@@ -18,21 +18,32 @@
   * HARTests/harLSTM.ecl or HARTests/harCNN_LSTM.ecl.
   * These examples also illustrate how to use the one-hot encoding
   * / decoding utilities.
+  * Code adopted from ClassificationTest.ecl
   */
+IMPORT STD;
+//#OPTION('outputlimitMb',100)
+//STD.File.LogicalFileList('*', 1, 1, FALSE); 
 IMPORT Python3 AS Python;
 IMPORT $.^ AS GNN;
 IMPORT GNN.Tensor;
 IMPORT GNN.Internal.Types AS iTypes;
 IMPORT GNN.Types;
 IMPORT GNN.GNNI;
+IMPORT STD.Date;
 IMPORT GNN.Internal AS Int;
 IMPORT ML_Core AS mlc;
+IMPORT Std.System.Thorlib;
+
+#OPTION('multiplePersistInstances', true);
+
+nodeId := Thorlib.node();
+nNodes := Thorlib.nodes();
 
 NumericField := mlc.Types.NumericField;
 
-// Prepare training data
+effNodes := 1;
+// Prepare trining data
 RAND_MAX := POWER(2,32) -1;
-
 // Test parameters
 trainCount := 1000;
 testCount := 100;
@@ -78,7 +89,7 @@ train0 := DATASET(trainCount, TRANSFORM(trainRec,
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
 train := PROJECT(train0, TRANSFORM(
   RECORDOF(LEFT), SELF.y := targetFunc(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
-OUTPUT(train, NAMED('trainData'));
+//OUTPUT(train, NAMED('trainData'));
 
 // Build the test data.  Same process as the training data.
 test0 := DATASET(testCount, TRANSFORM(trainRec,
@@ -96,37 +107,69 @@ test := PROJECT(test0, TRANSFORM(
 
 // Break the training and test data into X (independent) and Y (dependent) data sets.
 // Format as NumericField data.
-trainX := NORMALIZE(train, featureCount, TRANSFORM(NumericField,
+
+trainX0 := NORMALIZE(train, featureCount, TRANSFORM(NumericField,
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.x[COUNTER]));
-trainY := NORMALIZE(train, classCount, TRANSFORM(NumericField,
+trainY0 := NORMALIZE(train, classCount, TRANSFORM(NumericField,
                             SELF.wi := 1,
                             SELF.id := LEFT.id,
                             SELF.number := COUNTER,
                             SELF.value := LEFT.y[COUNTER]));
+trainX1 := Tensor.R4.dat.fromMatrix(trainX0);
+trainY1 := Tensor.R4.dat.fromMatrix(trainY0);
 
-OUTPUT(trainX, NAMED('X1'));
-OUTPUT(trainY, NAMED('y1'));
+trainX := Tensor.R4.MakeTensor([0, featureCount], trainX1);
+trainY := Tensor.R4.MakeTensor([0, classCount], trainY1);
 
-testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField,
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.x[COUNTER]));
-testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,
-                            SELF.wi := 1,
-                            SELF.id := LEFT.id,
-                            SELF.number := COUNTER,
-                            SELF.value := LEFT.y[COUNTER]));
 
+maxInputWi := MAX(trainX, wi);
+// Change the wi's for outputs (y) so that they are after the input wi's
+y1 := PROJECT(trainY, 
+                TRANSFORM(
+                  RECORDOF(LEFT), 
+                  SELF.wi := LEFT.wi + maxInputWi, 
+                  SELF := LEFT), 
+                LOCAL);
+aligned := Tensor.R4.AlignTensors(trainX + y1);
+// Now change the Y's wi back to the original numbers
+xAl := aligned(wi <= maxInputWi);
+yAl := PROJECT(aligned(wi > maxInputWi), 
+                TRANSFORM(
+                  RECORDOF(LEFT), 
+                  SELF.wi := LEFT.wi - maxInputWi, 
+                  SELF := LEFT), 
+                LOCAL);
+eBatchSize := 512;
+batchPos := 1;
+xBatch := int.TensExtract(xAl, batchPos, eBatchSize, limitNodes:=effNodes);
+yBatch := int.TensExtract(yAl, batchPos, eBatchSize, limitNodes:=effNodes);
+
+//OUTPUT(xBatch, NAMED('xBatch'));
+//OUTPUT(yBatch, NAMED('yBatch'));
+
+// totalRecords := Tensor.R4.GetRecordCount(yAl);
+
+//OUTPUT(xAl, NAMED('XAL'));
+//OUTPUT(YAl, NAMED('YAL'));
+//OUTPUT(trainX0, NAMED('X1_0'));
+//OUTPUT(trainY0, NAMED('y1_o'));
+//OUTPUT(trainX, NAMED('X'));
+//OUTPUT(trainY, NAMED('y'));
+
+
+//OUTPUT(count(trainY[1].densedata), Named('TestY1_Count'));
+//OUTPUT(count(trainY[2].densedata), Named('TestY2_Count'));
 
 // ldef provides the set of Keras layers that form the neural network.  These are
 // provided as strings representing the Python layer definitions as would be provided
 // to Keras.  Note that the symbol 'tf' is available for use (import tensorflow as tf), as is
 // the symbol 'layers' (from tensorflow.keras import layers).
 ldef := ['''layers.Dense(16, activation='tanh', input_shape=(5,))''',
+          '''layers.Dense(16, activation='relu')''',
+          '''layers.Dense(16, activation='relu')''',
           '''layers.Dense(16, activation='relu')''',
           '''layers.Dense(3, activation='softmax')'''];
 
@@ -139,7 +182,7 @@ compileDef := '''compile(optimizer=tf.keras.optimizers.SGD(.05),
 
 // Note that the order of the GNNI functions is maintained by passing tokens returned from one call
 // into the next call that is dependent on it.
-// For example, s is returned from GetSession().  It is used as the input to DefineModels(...) so
+// For example, s is returned from GetSession().  It is used as the iÍnput to DefineModels(...) so
 // that DefineModels() cannot execute until GetSession() has completed.
 // Likewise, mod, the output from GetSession() is provided as input to Fit().  Fit in turn returns
 // a token that is used by GetLoss(), EvaluateMod(), and Predict(), which are only dependent on Fit()
@@ -159,16 +202,45 @@ OUTPUT(wts, NAMED('InitWeights'));
 // Fit trains the models, given training X and Y data.  BatchSize is not the Keras batchSize,
 // but defines how many records are processed on each node before synchronizing the weights
 // Note that we use the NF form of Fit since we are using NumericField for I / o.
-mod2 := GNNI.FitNF(mod, trainX, trainY, batchSize := batchSize, numEpochs := numEpochs);
 
-OUTPUT(mod2, NAMED('mod2'));
 
+startTime := Date.CurrentSeconds(true):CHECKPOINT('startTime');//: PERSIST('startTime', REFRESH(True));
+
+#WORKUNIT('name', 'single_node');
+mod3 := GNNI.Fit(
+  mod, trainX, trainY, batchSize := batchSize, 
+  numEpochs := numEpochs, 
+  limitNodes:=0);
+
+endTime := Date.CurrentSeconds(true);//: PERSIST('endTime', refresh(True));
+// OUTPUT(mod3, NAMED('mod3'));
+
+SEQUENTIAL(
+  OUTPUT(Date.SecondsToString(startTime, '%H:%M:%S'), NAMED('StartTime')),
+  OUTPUT(mod3, NAMED('mod3')),
+  OUTPUT(Date.SecondsToString(endTime, '%H:%M:%S'), NAMED('EndTime')),
+  OUTPUT(endtime-starttime, NAMED('TimeTaken'))
+);
+
+/*
 // GetLoss returns the average loss for the final training epoch
-losses := GNNI.GetLoss(mod2);
+losses := GNNI.GetLoss(mod3);
+
+
+testX := NORMALIZE(test, featureCount, TRANSFORM(NumericField, // 5
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.x[COUNTER]));
+testY := NORMALIZE(test, classCount, TRANSFORM(NumericField,  // 3
+                            SELF.wi := 1,
+                            SELF.id := LEFT.id,
+                            SELF.number := COUNTER,
+                            SELF.value := LEFT.y[COUNTER]));
 
 // EvaluateNF computes the loss, as well as any other metrics that were defined in the Keras
 // compile line.  This is the NumericField form of EvaluateMod.
-metrics := GNNI.EvaluateNF(mod2, testX, testY);
+metrics := GNNI.EvaluateNF(mod3, testX, testY);
 
 OUTPUT(metrics, NAMED('metrics'));
 
@@ -178,9 +250,9 @@ OUTPUT(metrics, NAMED('metrics'));
 // final NN layer).  If we had used Tensors rather than NumericField, we
 // could convert to a class label by using Utils.FromOneHot, or
 // Utils.Probabilities2Class.
-preds := GNNI.PredictNF(mod2, testX);
+preds := GNNI.PredictNF(mod3, testX);
 
 OUTPUT(testY, ALL, NAMED('testDat'));
 OUTPUT(preds, NAMED('predictions'));
 
-OUTPUT(IF(metrics[2].value>0.95, 'Pass', 'Fail'), NAMED('Accuracy'));
+*/

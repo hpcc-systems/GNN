@@ -57,7 +57,8 @@ train0R := DATASET(trainCount, TRANSFORM(trainRecR,
                       );
 // Be sure to compute Y in a second step.  Otherwise, the RANDOM() will be executed twice and the Y will be based
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
-trainR := PROJECT(train0R, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFuncR(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+trainR := PROJECT(train0R, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFuncR(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 OUTPUT(trainR, NAMED('trainDataR'));
 
 // Build the test data.  Same process as the training data.
@@ -71,7 +72,8 @@ test0R := DATASET(testCount, TRANSFORM(trainRecR,
                       SELF.y := 0)
                       );
 
-testR := PROJECT(test0R, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFuncR(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+testR := PROJECT(test0R, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFuncR(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 
 // Break the training and test data into X (independent) and Y (dependent) data sets.  Format as Tensor Data.
 trainX0R := NORMALIZE(trainR, featureCount, TRANSFORM(TensData,
@@ -132,7 +134,8 @@ train0C := DATASET(trainCount, TRANSFORM(trainRecC,
                       );
 // Be sure to compute Y in a second step.  Otherewise, the RANDOM() will be executed twice and the Y will be based
 // on different values than those assigned to X.  This is an ECL quirk that is not easy to fix.
-trainC := PROJECT(train0C, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFuncC(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+trainC := PROJECT(train0C, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFuncC(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 OUTPUT(trainC, NAMED('trainDataC'));
 
 // Build the test data.  Same process as the training data.
@@ -146,7 +149,8 @@ test0C := DATASET(testCount, TRANSFORM(trainRecC,
                       SELF.y := [])
                       );
 
-testC := PROJECT(test0C, TRANSFORM(RECORDOF(LEFT), SELF.y := targetFuncC(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
+testC := PROJECT(test0C, TRANSFORM(
+  RECORDOF(LEFT), SELF.y := targetFuncC(LEFT.x[1], LEFT.x[2], LEFT.x[3], LEFT.x[4], LEFT.x[5]), SELF := LEFT));
 
 // Break the training and test data into X (independent) and Y (dependent) data sets.
 // Format as NumericField data.

@@ -45,10 +45,9 @@ EXPORT Keras := MODULE
     # only be called once.
     def initGlobals():
       try:
-        import tensorflow.compat.v1 as tf # V2.x
-        tf.disable_v2_behavior()
+        import tensorflow as tf # V2.x
       except:
-        import tensorflow as tf # V 1.x
+        assert 1 == 0, 'tensorflow not found'
       from tensorflow.keras import layers
       import numpy as np
       import math
@@ -60,9 +59,6 @@ EXPORT Keras := MODULE
       #   Model cache indexed by model id.
       global modcache
       modcache = {}
-      #   Session cache indexed by model id.
-      global sesscache
-      sesscache = {}
       #   The next model id to allocate
       global nextModId
       nextModId = 0
@@ -98,7 +94,7 @@ EXPORT Keras := MODULE
         else:
           return func + ': ' + exc[:200] + ' ... ' + exc[-200:]
       format_exc = _format_exc
-
+      
       # Assign GPUs to Thor nodes if needed.
       import os
       #this "CUDA VISIBLE DEVICES" will set which GPU a given Thor node will have access to
@@ -108,7 +104,7 @@ EXPORT Keras := MODULE
         os.environ["CUDA_VISIBLE_DEVICES"]=str(math.floor(int(nodeId)/numServers))
       else:
         os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-      tf.reset_default_graph()
+      tf.keras.backend.clear_session()
 
       # Convert an ECL Tensor dataset into a single numpy ndarray.
       global Tens2Np
@@ -123,8 +119,9 @@ EXPORT Keras := MODULE
           if recordOriented and shape[0] != 0:
             raise Exception('Record Oriented tensors ' + \
               'as data input to Fit or Predict must have a zero first shape component. Shape = ' + str(shape) + '.')
-          #assert not recordOriented or (recordOriented and shape[0] == 0), 'Keras.ecl: Tens2Np: Record Oriented tensors ' + \
-          #  'as data input to Fit or Predict must have a zero first shape component. Shape = ' + str(shape) + '.'
+          #assert not recordOriented or (recordOriented and shape[0] == 0),  + \
+          #  'Keras.ecl: Tens2Np: Record Oriented tensors as data input to Fit or Predict must have a zero ' + \
+          #  'first shape component. Shape = ' + str(shape) + '.'
         try:
           a = None
           tshape = []
@@ -296,11 +293,11 @@ EXPORT Keras := MODULE
   EXPORT STREAMED DATASET(kString) DefineModel(STREAMED DATASET(kString) mdef, UNSIGNED4 seqId)
                       := EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     from tensorflow.keras import layers
+    from tensorflow.keras import applications
     global nextModId
     try:
       # Allocate a new modelId
@@ -315,32 +312,21 @@ EXPORT Keras := MODULE
       # Note that for each model, we create a new session and new graph under the hood.
       # The graph is stored within the session, so only the session and model are stored,
       # both by model id.
-      graph = tf.Graph()
-      with graph.as_default():
-        tfSession = tf.Session()
-        with tfSession.as_default():
-          mod = tf.keras.Sequential()
-          for rec in mdef:
-            if rec[0] != nodeId:
-              # Make sure we are only processing data meant for this node.
-              continue
-            rectype = rec[2]
-            # If it is a layer definition string.  Add it to the model.
-            if rectype == kStrTypeDict['layer']:
-              mod.add(eval(rec[3]))
-            # If it's a compile string, use it to compile the model.  All
-            # layer strings need to precede any compile strings.  Only one
-            # compile string should be supplied.
-            elif rectype == kStrTypeDict['compile']:
-              exec('mod.' + rec[3])
-          # For some reason we need to do a get_weights / set_weights here, or set_weights
-          # fails later???
-          w = mod.get_weights()
-          mod.set_weights(w)
-          # Add this model to the model cache
-          modcache[modId] = mod
-          # And the session to the session cache
-          sesscache[modId] = tfSession
+      mod = tf.keras.models.Sequential()
+      for rec in mdef:
+        if rec[0] != nodeId:
+          # Make sure we are only processing data meant for this node.
+          continue
+        rectype = rec[2]
+        # If it is a layer definition string.  Add it to the model.
+        if rectype == kStrTypeDict['layer']:
+          mod.add(eval(rec[3]))
+        # If it's a compile string, use it to compile the model.  All
+        # layer strings need to precede any compile strings.  Only one
+        # compile string should be supplied.
+        elif rectype == kStrTypeDict['compile']:
+          exec('mod.' + rec[3])
+      modcache[modId] = mod
       # We succeeded.  Return a blank status to indicate success.
       return [(nodeId, modId, kStrTypeDict['status'], '')]
     except:
@@ -360,11 +346,11 @@ EXPORT Keras := MODULE
                                               STRING cdef)
                       := EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     from tensorflow.keras import layers
+    from tensorflow.keras import applications
     global nextModId
     try:
       # Allocate a new modelId
@@ -381,53 +367,47 @@ EXPORT Keras := MODULE
       # Note that for each model, we create a new session and new graph under the hood.
       # The graph is stored within the session, so only the session and model are stored,
       # both by model id.
-      graph = tf.Graph()
-      with graph.as_default():
-        tfSession = tf.Session()
-        with tfSession.as_default():
-          # Do two passes through the ldefs so that order of layers won't matter
-          for rec in ldefs:
-            lName, ldef, preds = rec
-            newLayer = eval(ldef)
-            layerDict[lName] = newLayer
-            predDict[lName] = preds
-          # Second pass to resolve the predecessors
-          for name in layerDict.keys():
-            layer = layerDict[name]
-            predNames = predDict[name]
-            lpreds = []
-            for predName in predNames:
-              pred = layerDict[predName]
-              lpreds.append(pred)
-            # Call the layer object's call method with the list of predecessors
-            # to set the preds for that layer.
-            if lpreds:
-              if len(lpreds) == 1:
-                layer = layer(lpreds[0])
-              else:
-                layer = layer(lpreds)
-              layerDict[name] = layer
-          # Now create the model using inputs and outputs
-          inps = []
-          outps = []
-          for inpName in inputs:
-            l = layerDict[inpName]
-            inps.append(l)
-          for outName in outputs:
-            l = layerDict[outName]
-            outps.append(l)
-          mod = tf.keras.models.Model(inputs=inps, outputs=outps)
-          # If there's a compile string, use it to compile the model.
-          if cdef:
-            exec('mod.' + cdef)
-          # For some reason we need to do a get_weights / set_weights here, or set_weights
-          # fails later???
-          w = mod.get_weights()
-          mod.set_weights(w)
-          # Add this model to the model cache
-          modcache[modId] = mod
-          # And the session to the session cache
-          sesscache[modId] = tfSession
+      # Do two passes through the ldefs so that order of layers won't matter
+      for rec in ldefs:
+        lName, ldef, preds = rec
+        newLayer = eval(ldef)
+        layerDict[lName] = newLayer
+        predDict[lName] = preds
+      # Second pass to resolve the predecessors
+      for name in layerDict.keys():
+        layer = layerDict[name]
+        predNames = predDict[name]
+        lpreds = []
+        for predName in predNames:
+          pred = layerDict[predName]
+          lpreds.append(pred)
+        # Call the layer object's call method with the list of predecessors
+        # to set the preds for that layer.
+        if lpreds:
+          if len(lpreds) == 1:
+            layer = layer(lpreds[0])
+          else:
+            layer = layer(lpreds)
+          layerDict[name] = layer
+      # Now create the model using inputs and outputs
+      inps = []
+      outps = []
+      for inpName in inputs:
+        l = layerDict[inpName]
+        inps.append(l)
+      for outName in outputs:
+        l = layerDict[outName]
+        outps.append(l)
+      mod = tf.keras.models.Model(inputs=inps, outputs=outps)
+      # If there's a compile string, use it to compile the model.
+      if cdef:
+        exec('mod.' + cdef)
+      # For some reason we need to do a get_weights / set_weights here, or set_weights
+      # fails later???
+      w = mod.get_weights()
+      mod.set_weights(w)
+      # Add this model to the model cache
+      modcache[modId] = mod
       # We succeeded.  Return a blank status to indicate success.
       return [(nodeId, modId, kStrTypeDict['status'], '')]
     except:
@@ -444,10 +424,7 @@ EXPORT Keras := MODULE
     try:
       # Restore the keras / tensorflow context for this model.
       mod = modcache[modelid]
-      tfSession = sesscache[modelid]
-      with tfSession.as_default():
-        with tfSession.graph.as_default():
-          js = mod.to_json()
+      js = mod.to_json()
       # Succeeded.  Return a blank status.
       return [(nodeId, 1, kStrTypeDict['status'], js)]
     except:
@@ -460,27 +437,21 @@ EXPORT Keras := MODULE
   EXPORT STREAMED DATASET(kString) FromJSON(STREAMED DATASET(kString) ksjson, UNSIGNED4 seqId)
               := EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     global nextModId
     # Should be only one record on each node
     try:
       json = 'EMPTY'
       for rec in ksjson:
         # Should only be one json kString record.
-        json = rec[2]
+        json = rec[3]
       # Restore the keras / tensorflow context for this model.
-      graph = tf.Graph()
-      with graph.as_default():
-        tfSession = tf.Session()
-        with tfSession.as_default():
-           mod = tf.keras.models.model_from_json(json)
+      mod = tf.keras.models.model_from_json(json)
       modId = nextModId
       nextModId += 1
       modcache[modId] = mod
-      sesscache[modId] = tfSession
     except:
       # Error.  Return an exception string.
       return [(nodeId, 1, kStrTypeDict['status'], format_exc('FromJSON'))]
@@ -493,24 +464,20 @@ EXPORT Keras := MODULE
   EXPORT STREAMED DATASET(kString) CompileMod(STREAMED DATASET(kString) compilestr, UNSIGNED4 seqId,
                 UNSIGNED modelid = 0) := EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     # Restore the keras / tensorflow context for this model.
-    tfSession = sesscache[modelid]
     mod = modcache[modelid]
-    with tfSession.as_default():
-      with tfSession.graph.as_default():
-        # Should only have one compilestr record per node
-        try:
-          cstr = 'EMPTY'
-          for rec in compilestr:
-            cstr = rec[2]
-          exec('mod.' + cstr)
-        except:
-          return [(nodeId, 1, kStrTypeDict['status'], format_exc('CompileMod'))]
-        return [(nodeId, 1, kStrTypeDict['status'], '')]
+    # Should only have one compilestr record per node
+    try:
+      cstr = 'EMPTY'
+      for rec in compilestr:
+        cstr = rec[2]
+      exec('mod.' + cstr)
+    except:
+      return [(nodeId, 1, kStrTypeDict['status'], format_exc('CompileMod'))]
+    return [(nodeId, 1, kStrTypeDict['status'], '')]
   ENDEMBED;
   /**
     * Get the weights from the Keras / Tensorflow model.
@@ -520,18 +487,14 @@ EXPORT Keras := MODULE
                           STREAMED DATASET(kString) dummy, UNSIGNED4 seqId, UNSIGNED modelid = 0) :=
                             EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     threadlock.acquire()
     try:
       # Restore the keras / tensorflow context for this model.
-      tfSession = sesscache[modelid]
       mod = modcache[modelid]
-      with tfSession.as_default():
-        with tfSession.graph.as_default():
-          w = mod.get_weights()
+      w = mod.get_weights()
       return NpList2Tens(w, isWeights = True)
     except:
       # IF there was an error, return an empty dataset.
@@ -547,21 +510,16 @@ EXPORT Keras := MODULE
   EXPORT STREAMED DATASET(kString) SetWeights(STREAMED DATASET(t_Tensor) tens, UNSIGNED4 seqId,
               UNSIGNED modelid = 0) := EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     # Restore the keras / tensorflow context for this model.
-    tfSession = sesscache[modelid]
     mod = modcache[modelid]
     try:
       # Restore the Keras / TF context.
-      tfSession = sesscache[modelid]
       mod = modcache[modelid]
       w = Tens2NpList(tens)
-      with tfSession.as_default():
-        with tfSession.graph.as_default():
-          mod.set_weights(w)
+      mod.set_weights(w)
       # Success.  Return an empty status string.
       return [(nodeId, 1, 1, '')]
     except:
@@ -585,10 +543,9 @@ EXPORT Keras := MODULE
               REAL lr = 1.0) :=
             EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
-      import tensorflow.compat.v1 as tf # V2.x
-      tf.disable_v2_behavior()
+      import tensorflow as tf # V2.x
     except:
-      import tensorflow as tf # V 1.x
+      assert 1 == 0, 'tensorflow not found'
     import numpy as np
     global currEpoch, batchCount, cumLoss
     try:
@@ -616,7 +573,9 @@ EXPORT Keras := MODULE
           xA = xAL[i]
           yA = yAL[i]
           if xA.size == 0 or yA.size == 0 or xA.shape[0] != yA.shape[0]:
-            assert 1 == 0, 'Fit: X and Y sizes do not match or are zero: xShape = ' + str(xA.shape) + ', yShape = ' + str(yA.shape)
+            msg = 'Fit: X and Y sizes do not match or are zero: xShape = ' + \
+              str(xA.shape)+ ', yShape = '+ str(yA.shape)
+            assert 1 == 0, msg
           if xA.shape[0] == 0:
             # At least one Tensor has zero length
             validxy = False
@@ -626,18 +585,21 @@ EXPORT Keras := MODULE
       if validxy:
         # Received valid data
         # Restore the keras / tensorflow context for this model.
-        tfSession = sesscache[modelid]
-        with tfSession.as_default():
-          with tfSession.graph.as_default():
-            # Set the starting weights
-            mod.set_weights(wA)
-            # Run one batch to fit the model
-            tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
-            # Update the cumulative (epoch) loss
-            currLoss = tfHistory.history['loss'][-1]
-            cumLoss[modelid] += currLoss
-            # Get the new weights from Keras model.
-            wA_out = mod.get_weights()
+
+        if wA: # Set the starting weights; with this condition, we skip setWeight for SingleNode use case
+          mod.set_weights(wA)
+        # Run one batch to fit the model
+        if len(xAL) == 1:
+          tfHistory = mod.fit(xAL[0], yAL[0], epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
+        else:
+          tfHistory = mod.fit(xAL, yAL, epochs=epoch, batch_size=kbatchsize, initial_epoch=epoch-1, shuffle=False)
+        # Update the cumulative (epoch) loss
+        currLoss = tfHistory.history['loss'][-1]
+        cumLoss[modelid] += currLoss
+        # Get the new weights from Keras model.
+        wA_out = mod.get_weights()
+        if not wA: # for SingleNode use case
+          return NpList2Tens(wA, isWeights = True)
         # For each layer, subtract the new weights from the starting weights to compute
         # the weight updates.  Scale the changes by the learningRate (lr) so that we can
         # control the lr as a fraction of the learing rate used within the optimizer from compileMod.
@@ -661,8 +623,12 @@ EXPORT Keras := MODULE
         EMBED(Python: globalscope(globalScope), persist('query'), activity)
     global batchCount, cumLoss
     try:
-      assert batchCount[modelid] > 0, 'Keras.GetLoss: batchCount = 0' + ', currEpoch = ' + str(currEpoch[modelid])
-      loss = cumLoss[modelid] / batchCount[modelid]
+      # assert batchCount[modelid] > 0, 'Keras.GetLoss: batchCount = 0' + ', currEpoch = ' + str(currEpoch[modelid])
+      batchCnt = batchCount.get(modelid, 0)
+      if batchCnt>0:  # we don't have batchCnt for single node cases.
+        loss = cumLoss[modelid] / batchCnt
+      else:  # Single Node use case
+        loss = 0.0
     except:
       assert False, format_exc('GetLoss -- modelId = ' + str(modelid) + ', batchCount = ' + str(batchCount))
       return [(0.0,)]
@@ -680,29 +646,27 @@ EXPORT Keras := MODULE
               UNSIGNED modelid = 0) :=
               EMBED(Python: globalscope(globalScope), persist('query'), activity)
     try:
+      # Restore the keras / tensorflow context for this model.
       mod = modcache[modelid]
       # Convert x data to a numpy array
       xA = Tens2NpList(x, recordOriented = True)
       # Convert y data to a numpy array
       yA = Tens2NpList(y, recordOriented = True)
       outRecs = []
-      # Restore the keras / tensorflow context for this model.
-      tfSession = sesscache[modelid]
-      with tfSession.as_default():
-        with tfSession.graph.as_default():
-          # Evaluate the Keras model
-          metrics = mod.evaluate(xA, yA, steps = 1)
-          # Get the name for each metric
-          mNames = mod.metrics_names
-          for i in range(len(metrics)):
-            # Return the name and value for each defined metric.
-            rec = (i, mNames[i], float(metrics[i]))
-            outRecs.append(rec)
+      # Evaluate the Keras model
+      metrics = mod.evaluate(xA, yA, steps = 1)
+      # Get the name for each metric
+      mNames = mod.metrics_names
+      for i in range(len(metrics)):
+        # Return the name and value for each defined metric.
+        rec = (i, mNames[i], float(metrics[i]))
+        outRecs.append(rec)
       return outRecs
     except:
       # Error occurred, but no string returned.  So we do an assert to convey the error.
       assert 1 == 0, format_exc('Evaluate')
   ENDEMBED;
+  
   /**
     * Use the Keras model to predict the output for a set
     * of independent (x) data.
@@ -718,7 +682,7 @@ EXPORT Keras := MODULE
                       EMBED(Python: globalscope(globalScope), persist('query'), activity)
         import numpy as np
         # Generator function for producing the predictions
-        def predGen(mod, tfSession):
+        def predGen(mod):
           try:
             # We need to process the data one slice at a time, so that we can emit
             # slices with the proper wi and sliceId so that the record indexes line up
@@ -744,9 +708,7 @@ EXPORT Keras := MODULE
                   # We have a slice accumulated.
                   # Process it.
                   # Restore the keras / tensorflow context for this model.
-                  with tfSession.as_default():
-                    with tfSession.graph.as_default():
-                      predA = mod.predict(xAL)
+                  predA = mod.predict(xAL)
                   for i in range(len(predA)):
                     sliceA = predA[i]
                     recSize = int(np.prod(sliceA.shape[1:]))
@@ -770,9 +732,7 @@ EXPORT Keras := MODULE
             # Process the last sliceId
             if xAL and xAL[0].shape[0] > 0:
               # Restore keras / tf context
-              with tfSession.as_default():
-                with tfSession.graph.as_default():
-                  predA = mod.predict(xAL)
+              predA = mod.predict(xAL)
               if type(predA) != type([]):
                 predA = [predA]
               for i in range(len(predA)):
@@ -794,9 +754,8 @@ EXPORT Keras := MODULE
         try:
           # Get the model
           mod = modcache[model_id]
-          sess = sesscache[model_id]
           # Return the generator that will produce the output Tensor list
-          return predGen(mod, sess)
+          return predGen(mod)
         except:
           # An error occurred during Predict.
           assert 0 == 1, format_exc('Predict2')
@@ -810,6 +769,35 @@ EXPORT Keras := MODULE
     predsS := SORT(preds, wi, sliceId, LOCAL);
     RETURN predsS;
   END; // Predict
+
+  /**
+    * Return a string representing the summary of the model.  Does not return any
+    * compile information or trained weights.
+    */
+  EXPORT STREAMED DATASET(kString) getSummary(STREAMED DATASET(kString) dummy, UNSIGNED4 seqId,
+                  UNSIGNED modelid = 0) :=
+              EMBED(Python: globalscope(globalScope), persist('query'), activity)
+    try:
+      # Restore the keras / tensorflow context for this model.
+      mod = modcache[modelid]
+      stringlist = []
+      mod.summary(print_fn=lambda x: stringlist.append(x))
+      short_model_summary = "\n".join(stringlist)
+      # Succeeded.  Return a blank status.
+      return [(nodeId, 1, kStrTypeDict['status'], short_model_summary)]
+    except:
+      # Failed.  Format an exception and send it.
+      return [(nodeId, 1, 4, format_exc('getSummary'))]
+  ENDEMBED;
+
+  EXPORT BOOLEAN isGPUAvailable() := EMBED(Python: globalscope(globalScope), persist('query'))
+    try:
+      import tensorflow as tf # V2.x
+    except:
+      assert 1 == 0, 'tensorflow not found'
+    return tf.test.is_gpu_available()
+  ENDEMBED;
+
   /**
     * Shutdown the Keras Interface and free up all global memory fields.
     * This leaves behind, at most, a small memory footprint that should
@@ -825,7 +813,6 @@ EXPORT Keras := MODULE
               EMBED(Python: globalscope(globalScope), persist('query'), activity)
       global nodeId, nNodes, maxSliceLen
       global modcache
-      global sesscache
       global currEpoch
       global batchCount
       global cumLoss
@@ -851,7 +838,6 @@ EXPORT Keras := MODULE
         NpList2Tens = None
         format_exc = None
         del(modcache)
-        del(sesscache)
         del(nodeId)
         del(nNodes)
         del(maxSliceLen)
